@@ -29,7 +29,7 @@ En **cualquier** parte del código (Core, App, red, interfaz y pruebas) está PR
 
 Permitido: arreglos nativos (`T[]`), `string`, `StringBuilder`, `Random`, `DateTime`, `System.IO`, `System.Net.Sockets`, `System.Threading`, y los delegados `Action<T>`, `Func<T>`, `Predicate<T>`.
 
-Todas las colecciones son estructuras propias de `Monopoly.Core.Estructuras`. Los recorridos se exponen con métodos que reciben delegados (p. ej. `Recorrer(Action<T>)`, `Buscar(Predicate<T>)`) o devolviendo arreglos, **no** implementando `IEnumerable<T>`.
+Todas las colecciones son estructuras propias de `Monopoly.Core.Estructuras` (ver su `Leeme.md`: qué estructura se usa para qué). Las comparaciones de igualdad dentro de las estructuras usan `object.Equals(a, b)` (no `EqualityComparer<T>`, que vive en `System.Collections.Generic`). Los recorridos se exponen con métodos que reciben delegados (p. ej. `Recorrer(Action<T>)`, `Buscar(Predicate<T>)`) o devolviendo arreglos, **no** implementando `IEnumerable<T>`.
 
 La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y falla si detecta una infracción. **Debe pasar siempre.**
 
@@ -76,6 +76,7 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
 Marcar con `[x]` al completar cada punto en su etapa.
 
 - [x] 0. Estructura inicial de la solución (Core, App, Tests), CLAUDE.md, .gitignore, README
+- [x] 0.1. Estructuras genéricas en `Monopoly.Core.Estructuras` con pruebas: `ListaSimple<T>`, `ListaDobleEnlazada<T>`, `ListaCircularDoble<T>`/`NodoCircularDoble<T>`, `ColaCircular<T>` (sobre arreglo), `Cola<T>` (enlazada). Base de los puntos 4, 5, 8, 10 y 12, que se marcarán cuando el modelo las use.
 - [ ] 1. Descripción general: partida de 4 jugadores en al menos 2 computadoras; temática definida (Atlantic City en español)
 - [ ] 2. Objetivos cubiertos (POO, estructuras propias, cliente-servidor, estado centralizado, transacciones, hardware)
 - [ ] 3. Arquitectura: servidor/banco con estado oficial en la máquina del organizador; clientes solo solicitan acciones
