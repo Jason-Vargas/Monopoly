@@ -1,0 +1,12 @@
+<Project>
+  <!-- Configuración común a todos los proyectos de la solución. -->
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <!-- Deshabilitado: los usings implícitos incluyen System.Linq y System.Collections.Generic, prohibidos en este proyecto. -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Authors>Jason Vargas</Authors>
+    <Product>Monopoly Distribuido</Product>
+  </PropertyGroup>
+</Project>
