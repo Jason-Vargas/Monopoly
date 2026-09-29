@@ -45,6 +45,20 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
 - El cliente nunca modifica el estado: toda acción se envía al servidor (banco), que valida y responde.
 - Cada estructura de datos nueva lleva sus pruebas unitarias en Monopoly.Tests.
 - Compilar con `dotnet build` y probar con `dotnet test` antes de cada commit.
+- **Polimorfismo real**: la lógica, la red y la interfaz NO usan `is`, `as`, casts ni `switch` sobre el tipo de casilla. Lo que dependa del tipo se resuelve con miembros virtuales (`AlCaer`, `Categoria`, `CalcularAlquiler`). En las pruebas sí se permiten casts para inspeccionar el tablero.
+
+## Diseño del modelo (`Monopoly.Core.Modelo`)
+
+- **`Casilla.AlCaer(Jugador, Juego)` no modifica el estado** (la única excepción es rotar el mazo al sacar carta). Devuelve un `ResultadoCasilla` cuyos efectos son datos: `PropiedadEnVenta`, `MontoAPagar` + `Acreedor` (null = banco) + `TipoPago`, `MontoARecibir` + `TipoCobro`, `MontoACadaJugador`, `MontoDeCadaJugador`, `Movimiento` (±casillas), `DestinoIndice` + `MovimientoDirecto`, `TurnosAPerder`, `Carta`. La lógica (Banco/Juego) valida y aplica cada efecto de forma genérica; `Accion` es solo informativa.
+- Jerarquía: `Casilla` → `Propiedad` (calles) → `Ferrocarril` (25·2^(n−1)), `CompaniaServicio` (28 con una, 70 con ambas); `Casilla` → `CasillaEvento` → `CasillaCasualidad`, `CasillaArcaComunal`; `Casilla` → `CasillaEspecial` → `Salida`, `Impuesto`, `CarcelSoloVisita`, `ParadaLibre`, `VayaALaCarcel`.
+- `Casilla.Id` es a la vez el identificador y la posición en el tablero (0 = Salida, 10 = cárcel, 30 = Vaya a la Cárcel).
+- **Premio de Salida**: lo detecta `Tablero.MoverJugador` (`ResultadoMovimiento.VecesPorSalida`) al pasar o caer en ella avanzando; retroceder no cuenta y `EnviarJugadorA` (cárcel) tampoco. `Salida.AlCaer` no vuelve a pagar.
+- `Tablero`: `MoverJugador(j, ±pasos)` recorre nodo a nodo y devuelve las casillas recorridas; `MoverJugadorHasta(j, indice)` avanza hasta un destino (cartas "Avance hasta..."); `EnviarJugadorA(j, indice)` teletransporta sin cobrar.
+- `Jugador`: saldo solo con `Acreditar`/`Debitar` (Debitar lanza si no alcanza; usar `PuedePagar` antes). `AgregarPropiedad`/`QuitarPropiedad` mantienen sincronizado `Propiedad.Propietario`. La posición la cambia solo `Tablero`.
+- Cartas: `TipoCartaEvento` tiene los 6 tipos del enunciado más `PagarACadaJugador` y `CobrarACadaJugador` (generan `PagoEntreJugadores`). `MazoCartas` envuelve una `Cola<CartaEvento>`: `Sacar()` desencola y reencola; `Barajar(Random)` usa un arreglo auxiliar (Fisher-Yates). 13 cartas por mazo en `CartasClasicas`.
+- `Dado`: aleatorio, con semilla (`new Dado(semilla)`) o determinista (`Dado.ConValoresFijos(3, 4, ...)`), devuelve `TiradaDados`.
+- `HistorialTransacciones` (sobre `ListaDobleEnlazada<Transaccion>`): `Registrar(...)` numera y fecha; `ExportarTxt(ruta, fechaPartida, jugadores)` escribe encabezado + tabla en UTF-8. El reloj es inyectable para pruebas.
+- `Logica.Juego` es por ahora un **esqueleto** (tablero, mazos barajados, dado, historial, fecha de inicio); jugadores, turnos y reglas se agregan en la etapa de lógica.
 
 ## Resumen de requisitos del enunciado
 
@@ -80,18 +94,18 @@ Marcar con `[x]` al completar cada punto en su etapa.
 - [ ] 1. Descripción general: partida de 4 jugadores en al menos 2 computadoras; temática definida (Atlantic City en español)
 - [ ] 2. Objetivos cubiertos (POO, estructuras propias, cliente-servidor, estado centralizado, transacciones, hardware)
 - [ ] 3. Arquitectura: servidor/banco con estado oficial en la máquina del organizador; clientes solo solicitan acciones
-- [ ] 4. Jugador con id, nombre, saldo, posición, estado activo y propiedades en estructura lineal propia
-- [ ] 5. Tablero como lista circular doblemente enlazada con ≥ 24 casillas, visible para todos
-- [ ] 6. Casilla base + Propiedad, CasillaEvento, CasillaEspecial con polimorfismo
-- [ ] 7. Propiedades: datos mínimos y comportamiento comprar / alquiler / propia
+- [x] 4. Jugador con id, nombre, saldo, posición, estado activo y propiedades en estructura lineal propia (`ListaSimple<Propiedad>`)
+- [ ] 5. Tablero como lista circular doblemente enlazada con ≥ 24 casillas, visible para todos — *modelo listo (40 casillas clásicas en `ListaCircularDoble`); falta mostrarlo a todos (interfaz/red)*
+- [x] 6. Casilla base + Propiedad, CasillaEvento, CasillaEspecial con polimorfismo
+- [ ] 7. Propiedades: datos mínimos y comportamiento comprar / alquiler / propia — *modelo listo (`AlCaer` ofrece compra / exige alquiler / nada); falta ejecutar la compra y el pago en el banco*
 - [ ] 8. Turnos con cola circular, avance automático, bloqueo fuera de turno
 - [ ] 9. Dos dados por turno, resultado transmitido, movimiento nodo a nodo mostrado a todos
-- [ ] 10. Mazo de cartas de evento que devuelve la carta al final; los 6 tipos de evento
-- [ ] 11. Transacciones con todos los campos y los 7 tipos mínimos; banco como origen/destino
-- [ ] 12. Historial: agregar, recorrer ambos sentidos, buscar por jugador y por tipo, imprimir todo
-- [ ] 13. Exportación del historial a TXT con los campos mínimos
+- [x] 10. Mazo de cartas de evento que devuelve la carta al final; los 6 tipos de evento
+- [ ] 11. Transacciones con todos los campos y los 7 tipos mínimos; banco como origen/destino — *clase y tipos listos; falta que el banco registre toda operación económica*
+- [x] 12. Historial: agregar, recorrer ambos sentidos, buscar por jugador y por tipo, imprimir todo
+- [x] 13. Exportación del historial a TXT con los campos mínimos
 - [ ] 14. Módulo electrónico: dado de 2 dígitos + RFID (primero simulado, luego Arduino)
-- [ ] 15. Todas las clases mínimas presentes; ninguna colección de .NET
+- [ ] 15. Todas las clases mínimas presentes; ninguna colección de .NET — *presentes: Juego (esqueleto), Jugador, Tablero, Casilla, Propiedad, CasillaEvento, CasillaEspecial, CartaEvento, Dado, Transaccion; faltan Servidor, Cliente y Banco*
 - [ ] 16. Comunicación por sockets TCP con protocolo documentado y difusión de estado
 - [ ] 17. Todas las validaciones del servidor
 - [ ] 18. Eliminación de jugadores y fin de partida (último activo o límite de turnos con patrimonio)
