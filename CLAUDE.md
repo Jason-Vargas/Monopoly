@@ -98,7 +98,19 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
   - Pico → PC: `LISTO` (al arrancar), `BOTON`, `RFID:<UID hex mayúsculas>` (una misma tarjeta no se repite mientras está apoyada ni hasta 2 s después de retirarla), `PONG`, `ERROR:<detalle>`.
   - PC → Pico: `DADOS:d1,d2` (1 a 6, con animación "rodando"), `LIMPIAR`, `PING`.
   - Al abrir el puerto, la PC debe enviar `PING` y esperar `PONG` (el `LISTO` pudo salir antes). No enviar nunca Ctrl+C (0x03).
-- Integración pendiente en C# (`Monopoly.Core.Hardware`, en el organizador): `BOTON` → `TirarDados` del jugador en turno; `RFID:uid` → `IdentificarTarjeta(uid)` (y `VincularTarjeta` para registrar tarjetas); tras cada tirada, enviar `DADOS:d1,d2` a la Pico. El modo simulado debe seguir funcionando sin la placa.
+
+## Integración del cajero en C# (`Monopoly.Core.Hardware`, en la computadora del organizador)
+
+- `IDispositivoCajero` (eventos `BotonPresionado`, `TarjetaLeida`, `EstadoCambiado`, `ErrorDispositivo`; `MostrarDados`, `LimpiarDisplays`; `Estado`, `EsFisico`) con dos implementaciones: `CajeroPico` (físico) y `CajeroSimulado` (sin placa: se juega con los botones de la interfaz; `SimularBoton`/`SimularTarjeta` para depurar). `CajeroPorLineas` es la base que interpreta el protocolo de líneas (ignora lo que no es del protocolo y cuenta `LineasIgnoradas`); las pruebas usan un `CajeroFalso` que hereda de ella.
+- `CajeroPico`: `SerialPort` a 115200, `NewLine "\n"`, **`DtrEnable` y `RtsEnable` = true**, hilo lector propio, `Conectar()` insiste con PING hasta recibir PONG (2,5 s), PING cada 2 s y desconexión si no hay respuesta en ~7 s o si falla la lectura/escritura (cable retirado). `PuertosDisponibles()` y `DetectarPuerto()` (PING/PONG en cada puerto).
+- `Servidor.UsarCajero(cajero)` (por defecto un `CajeroSimulado`); el servidor no libera el dispositivo. Los eventos del cajero se procesan con el mismo `_candadoProcesamiento` que las solicitudes:
+  - `BOTON` → `ProcesarTirarDados(null, idEnTurno)` con las mismas validaciones que `TIRAR_DADOS`; los rechazos se avisan a todos como `EVENTO|Cajero: ...`.
+  - Toda tirada aceptada (botón o interfaz) → `cajero.MostrarDados(d1, d2)` + `DADOS` a todos.
+  - `RFID:uid`: si hay vinculación pendiente → `Juego.VincularTarjeta`; si hay pago pendiente → `Juego.IdentificarTarjeta`; si no → `Juego.ConsultarTarjeta` (solo informa dueño y saldo).
+  - `PAGAR_CON_TARJETA` se rechaza si hay cajero físico conectado y el jugador tiene tarjeta física.
+  - Cambios de estado del cajero → `EVENTO|Cajero: ...` + `ESTADO` (campo 19 = cajero físico conectado).
+- Protocolo TCP: `VINCULAR_TARJETA|idJugador` (solo el organizador y con cajero físico; `0` cancela). Los avisos del cajero son `EVENTO` con el prefijo `Cajero: `.
+- Interfaz del organizador: `BarraCajero` (ToolStrip arriba en la sala y en el juego: puerto COM, ↻, Conectar/Desconectar, Detectar, estado). `SesionJuego.CambiarCajero` conecta el nuevo cajero al servidor y libera el anterior; `SesionJuego.CajeroCambiado` avisa en el hilo de la interfaz. En la sala: lista de jugadores + "Vincular tarjeta" / "Cancelar vinculación". En el juego, el botón "Pagar con tarjeta" se deshabilita si `EstadoRed.CajeroConectado` y el jugador tiene tarjeta física.
 
 ## Publicación y prueba en red
 
@@ -162,7 +174,7 @@ Marcar con `[x]` al completar cada punto en su etapa.
 - [x] 11. Transacciones con todos los campos y los 7 tipos mínimos; banco como origen/destino
 - [x] 12. Historial: agregar, recorrer ambos sentidos, buscar por jugador y por tipo, imprimir todo
 - [x] 13. Exportación del historial a TXT con los campos mínimos
-- [ ] 14. Módulo electrónico: dado de 2 dígitos + RFID (Raspberry Pi Pico W) — *firmware MicroPython, driver RC522 y documentación listos en `hardware/`; falta probarlo con la placa real e integrarlo en C# por USB serial (el modo simulado ya funciona)*
+- [ ] 14. Módulo electrónico: dado de 2 dígitos + RFID (Raspberry Pi Pico W) — *firmware, driver, integración en C# por USB serial (botón, dados en displays, vinculación y pago con tarjeta, vuelta automática al modo simulado) y pruebas con cajero falso listos; falta la prueba de extremo a extremo con la placa real*
 - [x] 15. Todas las clases mínimas presentes; ninguna colección de .NET
 - [x] 16. Comunicación por sockets TCP con protocolo documentado (`docs/protocolo.md`) y difusión de estado
 - [x] 17. Todas las validaciones del servidor (en `Juego`; el cliente no puede modificar el modelo porque sus mutadores son `internal`)

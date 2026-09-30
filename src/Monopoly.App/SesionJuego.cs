@@ -1,6 +1,7 @@
 using System;
 using System.Windows.Forms;
 using Monopoly.Core.Estructuras;
+using Monopoly.Core.Hardware;
 using Monopoly.Core.Modelo;
 using Monopoly.Core.Red;
 
@@ -19,6 +20,7 @@ internal sealed class SesionJuego : IDisposable
 {
     private readonly Control _hiloInterfaz;
     private readonly ListaSimple<string> _eventos = new ListaSimple<string>();
+    private IDispositivoCajero _cajero = new CajeroSimulado();
     private bool _cerrada;
 
     /// <summary>
@@ -124,6 +126,42 @@ internal sealed class SesionJuego : IDisposable
     public (string Ganador, string Resumen)? Fin { get; private set; }
 
     /// <summary>
+    /// Cambió el cajero o su estado (se dispara en el hilo de la interfaz). Solo en el organizador.
+    /// </summary>
+    public event Action? CajeroCambiado;
+
+    /// <summary>
+    /// Cajero conectado al servidor de esta aplicación (el simulado si no hay Pico W).
+    /// </summary>
+    public IDispositivoCajero Cajero => _cajero;
+
+    /// <summary>
+    /// Conecta un nuevo cajero al servidor alojado y libera el anterior. Solo el organizador aloja al
+    /// servidor y, por lo tanto, al cajero.
+    /// </summary>
+    /// <param name="nuevo">Cajero a usar (la Pico ya conectada, o uno simulado).</param>
+    public void CambiarCajero(IDispositivoCajero nuevo)
+    {
+        ArgumentNullException.ThrowIfNull(nuevo);
+        if (Servidor == null)
+        {
+            throw new InvalidOperationException("Solo el organizador puede conectar el cajero.");
+        }
+
+        IDispositivoCajero anterior = _cajero;
+        anterior.EstadoCambiado -= AlCambiarEstadoCajero;
+        _cajero = nuevo;
+        nuevo.EstadoCambiado += AlCambiarEstadoCajero;
+        Servidor.UsarCajero(nuevo);
+        if (!ReferenceEquals(anterior, nuevo))
+        {
+            anterior.Dispose();
+        }
+
+        CajeroCambiado?.Invoke();
+    }
+
+    /// <summary>
     /// Recorre los eventos recibidos desde el inicio de la sesión.
     /// </summary>
     /// <param name="accion">Acción a ejecutar con cada texto.</param>
@@ -161,7 +199,16 @@ internal sealed class SesionJuego : IDisposable
         _cerrada = true;
         Cliente.Dispose();
         Servidor?.Dispose();
+        _cajero.EstadoCambiado -= AlCambiarEstadoCajero;
+        _cajero.LimpiarDisplays();
+        _cajero.Dispose();
         _hiloInterfaz.Dispose();
+    }
+
+    private void AlCambiarEstadoCajero(EstadoCajero estado)
+    {
+        // El cajero avisa desde su propio hilo (por ejemplo, al desconectar el cable).
+        EnHiloInterfaz(() => CajeroCambiado?.Invoke());
     }
 
     private void EnHiloInterfaz(Action accion)

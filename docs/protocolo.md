@@ -43,6 +43,7 @@ Comunicación por **sockets TCP** entre los clientes (jugadores) y el servidor (
 | `EXPORTAR_TRANSACCIONES` | — | se escribe `partidas/partida_AAAA-MM-DD_HH-mm-ss.txt` **en la computadora del servidor**; `EVENTO` con la ruta + `ESTADO` a todos | error de escritura |
 | `DESCONECTAR` | — | el servidor cierra la conexión; `EVENTO` + `ESTADO` a los demás | — |
 | `RETIRAR_JUGADOR\|idJugador` | id del jugador a retirar | `EVENTO` + `ESTADO` a todos (y `FIN` si queda uno solo) | no es el organizador, el jugador está conectado, no existe, ya fue eliminado, partida no en curso |
+| `VINCULAR_TARJETA\|idJugador` | jugador al que se vinculará la próxima tarjeta leída por el cajero (`0` cancela la espera) | `EVENTO\|Cajero: Acerque al lector la tarjeta de X.` a todos; al leerla, `EVENTO` + `ESTADO` a todos (el jugador queda con tarjeta física) | no es el organizador, no hay cajero físico conectado, jugador inexistente o eliminado; al leer: la tarjeta ya está vinculada a otro jugador (`ERROR` al organizador y aviso a todos) |
 
 Antes de `CONECTAR`, cualquier otra solicitud recibe `ERROR|Debe enviar CONECTAR|nombre antes de cualquier otra solicitud.` Un comando desconocido recibe `ERROR|Comando desconocido: X.`
 
@@ -65,7 +66,7 @@ Valores de `TIPO`: `CompraPropiedad`, `PagoAlquiler`, `PagoBanco`, `PagoEntreJug
 
 ### 4.1 Campos de `ESTADO`
 
-Después de `ESTADO` vienen 19 campos fijos:
+Después de `ESTADO` vienen 20 campos fijos:
 
 | # | Campo | Ejemplo |
 |---|---|---|
@@ -88,13 +89,14 @@ Después de `ESTADO` vienen 19 campos fijos:
 | 16 | cantidad de transacciones | `5` |
 | 17 | cantidad de jugadores N | `4` |
 | 18 | ids de los jugadores **desconectados** (sin conexión activa con el servidor) | `2` |
+| 19 | **cajero físico conectado** (Pico W en el organizador): `1`/`0` | `0` |
 
 Luego **N bloques de 10 campos**, uno por jugador en orden de ingreso: `id`, `nombre`, `color` (`Rojo`, `Azul`, `Verde`, `Amarillo`), `saldo`, `posición` (0 a 39), `activo` (1/0), `turnos por perder`, `patrimonio`, `propiedades` (casillas separadas por coma), `tarjeta física` (1/0).
 
 Ejemplo (2 jugadores; Beto debe alquiler a Ana):
 
 ```
-ESTADO|EnCurso|EsperandoPago|2|100|2|||2|4|Beto debe pagar $4 a Ana|1|2|2|1,2,3|3:1|14|1|2||1|Ana|Rojo|1440|3|1|0|1500|3|0|2|Beto|Azul|1500|3|1|0|1500||0
+ESTADO|EnCurso|EsperandoPago|2|100|2|||2|4|Beto debe pagar $4 a Ana|1|2|2|1,2,3|3:1|14|1|2||0|1|Ana|Rojo|1440|3|1|0|1500|3|0|2|Beto|Azul|1500|3|1|0|1500||0
 ```
 
 ### 4.2 Campos de `TRANSACCIONES`
@@ -193,3 +195,13 @@ dotnet run --project src/Monopoly.ClienteConsola --no-build -- cliente 127.0.0.1
 ```
 
 En el cliente: `i` iniciar, `t` tirar, `c` comprar, `n` no comprar, `p` pagar con tarjeta, `f` terminar turno, `e` estado, `h [todas|antiguas|recientes|jugador X|tipo T]` historial, `x` exportar, `q` salir. Cualquier otra línea se envía tal cual (por ejemplo `CONSULTAR_TRANSACCIONES|TIPO|PagoAlquiler`).
+
+## 9. Cajero físico (Pico W)
+
+El cajero se conecta por USB a la computadora del organizador y **no habla este protocolo**: tiene su propio protocolo serie (ver `hardware/README.md`). El servidor traduce lo que ocurre en el cajero:
+
+- Botón del dado → misma lógica que `TIRAR_DADOS` para el jugador en turno (`DADOS` + `EVENTO` + `ESTADO` a todos); si se rechaza, `EVENTO|Cajero: Botón del dado: <motivo>`.
+- Tarjeta leída con un pago pendiente → pago del deudor (`EVENTO` + `ESTADO`), o `EVENTO|Cajero: La tarjeta pertenece a X; se espera la tarjeta de Y.`
+- Tarjeta leída sin pago pendiente → `EVENTO|Cajero: Tarjeta de X: saldo $N.` (no modifica nada).
+- Conexión o desconexión del cajero → `EVENTO|Cajero: ...` + `ESTADO` con el campo 19 actualizado.
+- Con el cajero conectado, `PAGAR_CON_TARJETA` de un jugador con tarjeta física se responde `ERROR|Usted tiene una tarjeta física: pásela por el lector del cajero para pagar.`

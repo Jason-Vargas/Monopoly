@@ -18,6 +18,12 @@ internal sealed class FormularioSalaEspera : Form
     private readonly ListBox _lstEventos = new ListBox { IntegralHeight = false, HorizontalScrollbar = true };
     private readonly Label _lblEstado = new Label { AutoSize = false };
     private readonly Button _btnIniciar = new Button { Text = "Iniciar partida" };
+    private readonly Button _btnVincular = new Button { Text = "Vincular tarjeta" };
+    private readonly Button _btnCancelarVinculacion = new Button { Text = "Cancelar vinculación" };
+    private readonly Label _lblVinculacion = new Label { AutoSize = false, ForeColor = Color.DimGray };
+    private BarraCajero? _barraCajero;
+    private EstadoJugador[] _jugadoresMostrados = new EstadoJugador[0];
+    private int? _esperandoTarjetaDe;
     private bool _partidaIniciada;
 
     /// <summary>
@@ -32,13 +38,19 @@ internal sealed class FormularioSalaEspera : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(600, 600);
+        int ancho = sesion.EsOrganizador ? 780 : 560;
+        ClientSize = new Size(ancho + 40, sesion.EsOrganizador ? 640 : 600);
         BackColor = Paleta.FondoPanel;
         Font = new Font(Paleta.Fuente, 10f);
 
         int y = 16;
         if (sesion.EsOrganizador)
         {
+            // El organizador aloja al banco y, por lo tanto, al cajero (Pico W por USB).
+            _barraCajero = new BarraCajero(sesion) { Dock = DockStyle.Top };
+            Controls.Add(_barraCajero);
+            y += 34;
+
             Label aviso = new Label { Text = "Usted aloja al banco. Comparta esta dirección con los demás:", AutoSize = false };
             aviso.SetBounds(20, y, 560, 42);
             Controls.Add(aviso);
@@ -63,14 +75,31 @@ internal sealed class FormularioSalaEspera : Form
         }
 
         Controls.Add(new Label { Text = "Jugadores conectados:", Location = new Point(20, y), AutoSize = true, Font = new Font(Paleta.Fuente, 10f, FontStyle.Bold) });
-        _lstJugadores.SetBounds(20, y + 24, 560, 128);
+        _lstJugadores.SetBounds(20, y + 24, sesion.EsOrganizador ? ancho - 220 : ancho, 128);
         _lstJugadores.Font = new Font(Paleta.Fuente, 10.5f);
         Controls.Add(_lstJugadores);
 
-        _lblEstado.SetBounds(20, y + 158, 560, 44);
+        if (sesion.EsOrganizador)
+        {
+            // Registro de tarjetas: el organizador elige un jugador y la próxima tarjeta leída queda vinculada.
+            int x = 20 + ancho - 205;
+            _btnVincular.SetBounds(x, y + 24, 205, 36);
+            _btnVincular.Click += (s, e) => VincularTarjetaSeleccionado();
+            _btnCancelarVinculacion.SetBounds(x, y + 64, 205, 30);
+            _btnCancelarVinculacion.Click += (s, e) => CancelarVinculacion();
+            _lblVinculacion.SetBounds(x, y + 98, 205, 56);
+            _lblVinculacion.Font = new Font(Paleta.Fuente, 8.5f);
+            Controls.Add(_btnVincular);
+            Controls.Add(_btnCancelarVinculacion);
+            Controls.Add(_lblVinculacion);
+            _lstJugadores.SelectedIndexChanged += (s, e) => ActualizarVinculacion();
+            _sesion.CajeroCambiado += ActualizarVinculacion;
+        }
+
+        _lblEstado.SetBounds(20, y + 158, ancho, 44);
         Controls.Add(_lblEstado);
 
-        _btnIniciar.SetBounds(20, y + 206, 560, 42);
+        _btnIniciar.SetBounds(20, y + 206, ancho, 42);
         _btnIniciar.Visible = sesion.EsOrganizador;
         _btnIniciar.Enabled = false;
         _btnIniciar.BackColor = Color.FromArgb(40, 140, 70);
@@ -80,7 +109,7 @@ internal sealed class FormularioSalaEspera : Form
         Controls.Add(_btnIniciar);
 
         int yEventos = sesion.EsOrganizador ? y + 258 : y + 206;
-        _lstEventos.SetBounds(20, yEventos, 560, ClientSize.Height - yEventos - 16);
+        _lstEventos.SetBounds(20, yEventos, ancho, ClientSize.Height - yEventos - 16);
         _lstEventos.Font = new Font(Paleta.Fuente, 9f);
         _lstEventos.ForeColor = Color.DimGray;
         Controls.Add(_lstEventos);
@@ -114,6 +143,7 @@ internal sealed class FormularioSalaEspera : Form
         _sesion.EventoRecibido -= AlRecibirEvento;
         _sesion.ErrorRecibido -= AlRecibirError;
         _sesion.Desconectado -= AlDesconectar;
+        _sesion.CajeroCambiado -= ActualizarVinculacion;
         base.OnFormClosed(e);
     }
 
@@ -132,17 +162,36 @@ internal sealed class FormularioSalaEspera : Form
             return;
         }
 
+        int seleccionado = _lstJugadores.SelectedIndex;
+        _jugadoresMostrados = instantanea.Jugadores;
         _lstJugadores.BeginUpdate();
         _lstJugadores.Items.Clear();
         for (int i = 0; i < instantanea.Jugadores.Length; i++)
         {
             EstadoJugador j = instantanea.Jugadores[i];
             string marcas = (i == 0 ? " · organizador" : string.Empty) + (j.Id == _sesion.IdJugador ? " · usted" : string.Empty)
+                + (j.TieneTarjetaFisica ? " · tarjeta RFID" : string.Empty)
                 + (estado.EstaConectado(j.Id) ? string.Empty : " · DESCONECTADO");
             _lstJugadores.Items.Add($"{j.Id}. {j.Nombre} — ficha {j.ColorFicha}{marcas}");
         }
 
+        if (seleccionado >= 0 && seleccionado < _lstJugadores.Items.Count)
+        {
+            _lstJugadores.SelectedIndex = seleccionado;
+        }
+
         _lstJugadores.EndUpdate();
+
+        // Si llegó la tarjeta del jugador que se estaba vinculando, termina la espera.
+        if (_esperandoTarjetaDe.HasValue && estado.BuscarJugador(_esperandoTarjetaDe.Value)?.TieneTarjetaFisica == true)
+        {
+            string nombre = estado.BuscarJugador(_esperandoTarjetaDe.Value)!.Nombre;
+            _esperandoTarjetaDe = null;
+            _lblVinculacion.ForeColor = Color.FromArgb(20, 110, 40);
+            _lblVinculacion.Text = $"Tarjeta vinculada a {nombre}.";
+        }
+
+        ActualizarVinculacion();
 
         int cantidad = instantanea.Jugadores.Length;
         bool puedeIniciar = cantidad >= Juego.MinimoJugadores && cantidad <= Juego.MaximoJugadores;
@@ -166,6 +215,65 @@ internal sealed class FormularioSalaEspera : Form
     {
         _lblEstado.ForeColor = Color.FromArgb(170, 20, 20);
         _lblEstado.Text = mensaje;
+        if (_esperandoTarjetaDe.HasValue)
+        {
+            // Por ejemplo, "La tarjeta X ya está vinculada a Beto": la espera terminó sin vincular.
+            _esperandoTarjetaDe = null;
+            _lblVinculacion.ForeColor = Color.FromArgb(170, 20, 20);
+            _lblVinculacion.Text = mensaje;
+            ActualizarVinculacion();
+        }
+    }
+
+    private void VincularTarjetaSeleccionado()
+    {
+        int indice = _lstJugadores.SelectedIndex;
+        if (indice < 0 || indice >= _jugadoresMostrados.Length)
+        {
+            return;
+        }
+
+        EstadoJugador jugador = _jugadoresMostrados[indice];
+        _esperandoTarjetaDe = jugador.Id;
+        _lblVinculacion.ForeColor = Color.FromArgb(40, 90, 170);
+        _lblVinculacion.Text = $"Acerque al lector la tarjeta de {jugador.Nombre}...";
+        _sesion.Solicitar(cliente => cliente.VincularTarjeta(jugador.Id));
+        ActualizarVinculacion();
+    }
+
+    private void CancelarVinculacion()
+    {
+        _esperandoTarjetaDe = null;
+        _lblVinculacion.Text = string.Empty;
+        _sesion.Solicitar(cliente => cliente.VincularTarjeta(0));
+        ActualizarVinculacion();
+    }
+
+    private void ActualizarVinculacion()
+    {
+        if (!_sesion.EsOrganizador)
+        {
+            return;
+        }
+
+        bool picoConectada = _sesion.Cajero.EsFisico && _sesion.Cajero.Estado == Core.Hardware.EstadoCajero.Conectado;
+        if (!picoConectada && _esperandoTarjetaDe.HasValue)
+        {
+            _esperandoTarjetaDe = null;
+            _lblVinculacion.Text = string.Empty;
+        }
+
+        _btnVincular.Enabled = picoConectada && _lstJugadores.SelectedIndex >= 0;
+        _btnCancelarVinculacion.Enabled = _esperandoTarjetaDe.HasValue;
+        if (!picoConectada && _lblVinculacion.Text.Length == 0)
+        {
+            _lblVinculacion.ForeColor = Color.DimGray;
+            _lblVinculacion.Text = "Conecte la Pico W (arriba) para vincular tarjetas.";
+        }
+        else if (picoConectada && !_esperandoTarjetaDe.HasValue && _lblVinculacion.ForeColor == Color.DimGray)
+        {
+            _lblVinculacion.Text = "Elija un jugador y pulse \"Vincular tarjeta\".";
+        }
     }
 
     private void AlDesconectar(string motivo)

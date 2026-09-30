@@ -17,8 +17,9 @@ public sealed class EstadoRed
     /// <param name="idJugadorUltimoMovimiento">Jugador que se movió por última vez, o <c>null</c>.</param>
     /// <param name="casillasRecorridas">Casillas recorridas en ese movimiento, en orden.</param>
     /// <param name="idsDesconectados">Jugadores sin conexión activa con el servidor (opcional).</param>
-    public EstadoRed(InstantaneaJuego instantanea, int? idJugadorUltimoMovimiento, int[] casillasRecorridas, int[]? idsDesconectados = null)
-        : this(instantanea, idJugadorUltimoMovimiento, casillasRecorridas, CalcularPropietarios(instantanea), idsDesconectados)
+    /// <param name="cajeroConectado">Si el cajero físico (Pico W) está conectado al servidor.</param>
+    public EstadoRed(InstantaneaJuego instantanea, int? idJugadorUltimoMovimiento, int[] casillasRecorridas, int[]? idsDesconectados = null, bool cajeroConectado = false)
+        : this(instantanea, idJugadorUltimoMovimiento, casillasRecorridas, CalcularPropietarios(instantanea), idsDesconectados, cajeroConectado)
     {
     }
 
@@ -30,8 +31,10 @@ public sealed class EstadoRed
     /// <param name="casillasRecorridas">Casillas recorridas en ese movimiento, en orden.</param>
     /// <param name="propietarios">Id del dueño por índice de casilla (0 = sin dueño).</param>
     /// <param name="idsDesconectados">Jugadores sin conexión activa con el servidor.</param>
-    public EstadoRed(InstantaneaJuego instantanea, int? idJugadorUltimoMovimiento, int[] casillasRecorridas, int[] propietarios, int[]? idsDesconectados)
+    /// <param name="cajeroConectado">Si el cajero físico (Pico W) está conectado al servidor.</param>
+    public EstadoRed(InstantaneaJuego instantanea, int? idJugadorUltimoMovimiento, int[] casillasRecorridas, int[] propietarios, int[]? idsDesconectados, bool cajeroConectado = false)
     {
+        CajeroConectado = cajeroConectado;
         ArgumentNullException.ThrowIfNull(instantanea);
         Instantanea = instantanea;
         IdJugadorUltimoMovimiento = idJugadorUltimoMovimiento;
@@ -39,6 +42,12 @@ public sealed class EstadoRed
         Propietarios = propietarios ?? new int[Tablero.CantidadCasillas];
         IdsDesconectados = idsDesconectados ?? new int[0];
     }
+
+    /// <summary>
+    /// Indica si el cajero físico (Pico W) está conectado: los jugadores con tarjeta física deben pagar
+    /// pasándola por el lector, y los dados se muestran en sus displays.
+    /// </summary>
+    public bool CajeroConectado { get; }
 
     /// <summary>
     /// Jugadores registrados que no tienen una conexión activa con el servidor.

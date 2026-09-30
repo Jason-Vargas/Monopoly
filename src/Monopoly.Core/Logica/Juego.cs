@@ -547,6 +547,27 @@ public class Juego
     }
 
     /// <summary>
+    /// Indica a quién pertenece una tarjeta y su saldo, sin modificar nada (lectura fuera de un pago).
+    /// </summary>
+    /// <param name="uid">UID leído.</param>
+    /// <returns>El resultado con el dueño y su saldo, o un rechazo si la tarjeta no está registrada.</returns>
+    public ResultadoAccion ConsultarTarjeta(string uid)
+    {
+        lock (_candado)
+        {
+            string uidNormalizado = NormalizarUid(uid);
+            Jugador? jugador = BuscarPorUid(uidNormalizado);
+            if (jugador == null)
+            {
+                return ResultadoAccion.Fallido($"La tarjeta {uidNormalizado} no está registrada a ningún jugador.");
+            }
+
+            string situacion = jugador.Activo ? $"saldo {Formato.Dinero(jugador.Saldo)}" : "eliminado de la partida";
+            return ResultadoAccion.Correcto($"Tarjeta de {jugador.Nombre}: {situacion}.") with { IdJugador = jugador.Id };
+        }
+    }
+
+    /// <summary>
     /// Retira de la partida a un jugador (por ejemplo, porque se desconectó y no vuelve): queda eliminado
     /// sin pagar nada, sus propiedades vuelven a estar libres y sale de la cola de turnos; si era su turno,
     /// pasa al siguiente. Solo puede hacerlo el organizador, y no puede retirarse a sí mismo.

@@ -230,6 +230,11 @@ public sealed class Cliente : IDisposable
     /// <summary>Envía <c>EXPORTAR_TRANSACCIONES</c>.</summary>
     public void ExportarTransacciones() => Enviar(Protocolo.ExportarTransacciones);
 
+    /// <summary>Envía <c>VINCULAR_TARJETA|id</c>: la próxima tarjeta leída se vincula a ese jugador (0 cancela).</summary>
+    /// <param name="idJugador">Jugador al que se vinculará la tarjeta.</param>
+    public void VincularTarjeta(int idJugador) =>
+        Enviar(Protocolo.VincularTarjeta, idJugador.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
     /// <summary>Envía <c>RETIRAR_JUGADOR|id</c> (solo el organizador, para jugadores desconectados).</summary>
     /// <param name="idJugador">Jugador a retirar.</param>
     public void RetirarJugador(int idJugador) =>
@@ -337,8 +342,9 @@ public sealed class Cliente : IDisposable
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException || ex is ObjectDisposedException || ex is SocketException)
+        catch (Exception ex) when (ex is IOException || ex is ObjectDisposedException || ex is SocketException || ex is InvalidOperationException)
         {
+            // InvalidOperationException: el flujo ya se cerró desde este lado ("The stream does not support reading").
             motivo = "Se perdió la conexión con el servidor (¿se cayó la red o se cerró la computadora del organizador?).";
         }
 
