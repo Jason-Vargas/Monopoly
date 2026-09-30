@@ -57,6 +57,10 @@ internal sealed class FormularioJuego : Form
         barra.Items.Add(_lblMensaje);
         barra.Items.Add(_lblConexion);
         Controls.Add(barra);
+        if (sesion.EsOrganizador)
+        {
+            Controls.Add(new BarraCajero(sesion) { Dock = DockStyle.Top });
+        }
 
         _btnTirar.Click += (s, e) => Solicitar(cliente => cliente.TirarDados());
         _btnComprar.Click += (s, e) => Solicitar(cliente => cliente.ComprarPropiedad());
@@ -175,6 +179,12 @@ internal sealed class FormularioJuego : Form
     private void AlRecibirEvento(string texto)
     {
         AgregarAlRegistro(texto);
+        if (texto.StartsWith("Cajero:", StringComparison.Ordinal))
+        {
+            // Lo que pasa en el cajero físico (tarjeta leída, botón del dado) se destaca para todos.
+            _lblMensaje.ForeColor = Color.FromArgb(30, 70, 150);
+            _lblMensaje.Text = texto;
+        }
     }
 
     private void AlRecibirError(string mensaje)
@@ -285,7 +295,9 @@ internal sealed class FormularioJuego : Form
         _btnTirar.Enabled = miTurno && i!.Fase == FaseTurno.EsperandoDados;
         _btnComprar.Enabled = miTurno && i!.Fase == FaseTurno.EsperandoDecisionCompra;
         _btnNoComprar.Enabled = _btnComprar.Enabled;
-        _btnPagar.Enabled = enCurso && yo.HasValue && i!.IdDeudor == yo;
+        // Con la Pico conectada, quien tiene tarjeta física paga pasándola por el lector, no con el botón.
+        bool debo = enCurso && yo.HasValue && i!.IdDeudor == yo;
+        _btnPagar.Enabled = debo && !PagaConLector(estado, yo);
         _btnTerminar.Enabled = miTurno && i!.Fase == FaseTurno.PuedeTerminar;
         _btnHistorial.Enabled = !_desconectado;
 
@@ -301,7 +313,16 @@ internal sealed class FormularioJuego : Form
 
         _btnRetirar.Visible = _sesion.EsOrganizador && hayDesconectados;
 
-        _lblInfo.BackColor = miTurno || _btnPagar.Enabled ? Color.FromArgb(255, 238, 170) : Color.White;
+        _lblInfo.BackColor = miTurno || debo ? Color.FromArgb(255, 238, 170) : Color.White;
+    }
+
+    /// <summary>
+    /// Indica si el jugador debe pagar con la tarjeta física en el lector del cajero.
+    /// </summary>
+    private static bool PagaConLector(EstadoRed? estado, int? idJugador)
+    {
+        return estado != null && idJugador.HasValue && estado.CajeroConectado
+               && estado.BuscarJugador(idJugador.Value)?.TieneTarjetaFisica == true;
     }
 
     private string DescribirSituacion(EstadoRed estado)
@@ -339,7 +360,11 @@ internal sealed class FormularioJuego : Form
                 break;
             case FaseTurno.EsperandoPago:
                 bool debo = i.IdDeudor == _sesion.IdJugador;
-                accion = $"{i.DescripcionPagoPendiente}. " + (debo ? "Pase su tarjeta (Pagar con tarjeta)." : "Esperando la tarjeta.");
+                bool conLector = PagaConLector(estado, i.IdDeudor);
+                string instruccion = debo
+                    ? (conLector ? "Pase su tarjeta por el lector del cajero." : "Pulse \"Pagar con tarjeta\".")
+                    : (conLector ? "Esperando la tarjeta en el lector del cajero." : "Esperando el pago.");
+                accion = $"{i.DescripcionPagoPendiente}. {instruccion}";
                 break;
             default:
                 accion = $"{quien} puede terminar el turno.";

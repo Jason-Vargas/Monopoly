@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using Monopoly.Core.Estructuras;
+using Monopoly.Core.Hardware;
 using Monopoly.Core.Logica;
 using Monopoly.Core.Modelo;
 
@@ -41,6 +42,9 @@ public sealed class Servidor : IDisposable
     private bool _finEnviado;
     private int? _idUltimoMovimiento;
     private int[] _ultimasRecorridas = new int[0];
+    private IDispositivoCajero _cajero = new CajeroSimulado();
+    private int? _idVinculacion;
+    private ConexionCliente? _conexionVinculacion;
 
     /// <summary>
     /// Crea el servidor (no empieza a escuchar hasta <see cref="Iniciar"/>).
@@ -53,6 +57,7 @@ public sealed class Servidor : IDisposable
         ArgumentNullException.ThrowIfNull(juego);
         _juego = juego;
         _escucha = new TcpListener(direccion ?? IPAddress.Any, puerto);
+        UsarCajero(_cajero);
     }
 
     /// <summary>
@@ -180,7 +185,18 @@ public sealed class Servidor : IDisposable
                 continue;
             }
 
-            ConexionCliente conexion = new ConexionCliente(tcp);
+            ConexionCliente conexion;
+            try
+            {
+                conexion = new ConexionCliente(tcp);
+            }
+            catch (Exception ex) when (ex is SocketException || ex is ObjectDisposedException || ex is InvalidOperationException || ex is IOException)
+            {
+                // El cliente se desconectó justo al conectarse: se descarta sin afectar al servidor.
+                tcp.Dispose();
+                continue;
+            }
+
             lock (_candadoClientes)
             {
                 _clientes.AgregarAlFinal(conexion);
@@ -244,7 +260,15 @@ public sealed class Servidor : IDisposable
         }
         finally
         {
-            ManejarDesconexion(conexion);
+            try
+            {
+                ManejarDesconexion(conexion);
+            }
+            catch (Exception ex)
+            {
+                // Una excepción en un hilo de fondo cerraría todo el programa: se registra y se sigue.
+                Registrar($"Error al cerrar la conexión de {conexion.Direccion}: {ex.Message}");
+            }
         }
     }
 
@@ -288,7 +312,10 @@ public sealed class Servidor : IDisposable
                     Responder(conexion, _juego.NoComprar(id));
                     break;
                 case Protocolo.PagarConTarjeta:
-                    Responder(conexion, _juego.IdentificarTarjeta(_juego.ObtenerJugador(id)!.UidTarjeta ?? string.Empty));
+                    ProcesarPagarConTarjeta(conexion, id);
+                    break;
+                case Protocolo.VincularTarjeta:
+                    ProcesarVincularTarjeta(conexion, id, mensaje);
                     break;
                 case Protocolo.TerminarTurno:
                     Responder(conexion, _juego.TerminarTurno(id));
@@ -389,20 +416,294 @@ public sealed class Servidor : IDisposable
         DifundirCambios();
     }
 
-    private void ProcesarTirarDados(ConexionCliente conexion, int id)
+    /// <summary>
+    /// Tira los dados del jugador indicado. La solicitud puede venir de un cliente (<paramref name="conexion"/>)
+    /// o del botón del cajero (<c>null</c>): los rechazos se responden al cliente o se avisan a todos.
+    /// La tirada se muestra también en los displays del cajero.
+    /// </summary>
+    private void ProcesarTirarDados(ConexionCliente? conexion, int id)
     {
         ResultadoAccion resultado = _juego.TirarDados(id);
         if (!resultado.Exito)
         {
-            ResponderError(conexion, resultado.Mensaje);
+            if (conexion != null)
+            {
+                ResponderError(conexion, resultado.Mensaje);
+            }
+            else
+            {
+                AvisarCajero("Botón del dado: " + resultado.Mensaje);
+            }
+
             return;
         }
 
         TiradaDados tirada = resultado.Tirada!.Value;
         _idUltimoMovimiento = id;
         _ultimasRecorridas = SerializadorEstado.CasillasRecorridas(resultado.Movimientos);
+        _cajero.MostrarDados(tirada.Dado1, tirada.Dado2);
         EnviarATodos(Protocolo.Codificar(Protocolo.Dados, Texto(id), Texto(tirada.Dado1), Texto(tirada.Dado2)));
         DifundirCambios();
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Cajero (Pico W o simulado)
+    // ------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Cajero en uso (por defecto, el simulado).
+    /// </summary>
+    public IDispositivoCajero Cajero
+    {
+        get
+        {
+            lock (_candadoProcesamiento)
+            {
+                return _cajero;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Indica si hay un cajero físico conectado.
+    /// </summary>
+    public bool CajeroFisicoConectado
+    {
+        get
+        {
+            lock (_candadoProcesamiento)
+            {
+                return CajeroFisicoActivo;
+            }
+        }
+    }
+
+    private bool CajeroFisicoActivo => _cajero.EsFisico && _cajero.Estado == EstadoCajero.Conectado;
+
+    /// <summary>
+    /// Cambia el cajero del servidor (por ejemplo, al conectar la Pico W o al volver al modo simulado).
+    /// El servidor no toma posesión del dispositivo: quien lo creó debe liberarlo.
+    /// </summary>
+    /// <param name="cajero">Nuevo cajero.</param>
+    public void UsarCajero(IDispositivoCajero cajero)
+    {
+        ArgumentNullException.ThrowIfNull(cajero);
+        lock (_candadoProcesamiento)
+        {
+            _cajero.BotonPresionado -= AlPresionarBoton;
+            _cajero.TarjetaLeida -= AlLeerTarjeta;
+            _cajero.EstadoCambiado -= AlCambiarEstadoCajero;
+            _cajero.ErrorDispositivo -= AlRecibirErrorCajero;
+            _cajero = cajero;
+            _cajero.BotonPresionado += AlPresionarBoton;
+            _cajero.TarjetaLeida += AlLeerTarjeta;
+            _cajero.EstadoCambiado += AlCambiarEstadoCajero;
+            _cajero.ErrorDispositivo += AlRecibirErrorCajero;
+            _idVinculacion = null;
+            _conexionVinculacion = null;
+            InformarCambioCajero();
+        }
+    }
+
+    /// <summary>
+    /// <c>PAGAR_CON_TARJETA</c> (modo simulado): usa el UID del propio jugador. Si hay un cajero físico
+    /// conectado y el jugador tiene tarjeta física, debe pagar pasándola por el lector.
+    /// </summary>
+    private void ProcesarPagarConTarjeta(ConexionCliente conexion, int id)
+    {
+        Jugador jugador = _juego.ObtenerJugador(id)!;
+        string uid = jugador.UidTarjeta ?? string.Empty;
+        bool tarjetaFisica = !uid.StartsWith(Juego.PrefijoTarjetaVirtual, StringComparison.Ordinal);
+        if (CajeroFisicoActivo && tarjetaFisica)
+        {
+            ResponderError(conexion, "Usted tiene una tarjeta física: pásela por el lector del cajero para pagar.");
+            return;
+        }
+
+        Responder(conexion, _juego.IdentificarTarjeta(uid));
+    }
+
+    /// <summary>
+    /// <c>VINCULAR_TARJETA|id</c>: el organizador indica que la próxima tarjeta leída por el cajero
+    /// se vincula a ese jugador (0 cancela la espera).
+    /// </summary>
+    private void ProcesarVincularTarjeta(ConexionCliente conexion, int idSolicitante, Mensaje mensaje)
+    {
+        int idJugador;
+        try
+        {
+            idJugador = mensaje.Entero(0);
+        }
+        catch (FormatException)
+        {
+            ResponderError(conexion, $"Uso: {Protocolo.VincularTarjeta}|idJugador (0 para cancelar)");
+            return;
+        }
+
+        if (!EsOrganizador(idSolicitante))
+        {
+            ResponderError(conexion, "Solo el organizador puede vincular tarjetas.");
+            return;
+        }
+
+        if (idJugador == 0)
+        {
+            _idVinculacion = null;
+            _conexionVinculacion = null;
+            AvisarCajero("Se canceló la vinculación de tarjeta.");
+            return;
+        }
+
+        if (!CajeroFisicoActivo)
+        {
+            ResponderError(conexion, "No hay un cajero conectado: conecte la Pico W para vincular tarjetas.");
+            return;
+        }
+
+        Jugador? jugador = _juego.ObtenerJugador(idJugador);
+        if (jugador == null || !jugador.Activo)
+        {
+            ResponderError(conexion, $"No existe un jugador activo con id {idJugador}.");
+            return;
+        }
+
+        _idVinculacion = idJugador;
+        _conexionVinculacion = conexion;
+        AvisarCajero($"Acerque al lector la tarjeta de {jugador.Nombre}.");
+    }
+
+    private void AlPresionarBoton()
+    {
+        lock (_candadoProcesamiento)
+        {
+            if (!_activo)
+            {
+                return;
+            }
+
+            InstantaneaJuego instantanea = _juego.ObtenerInstantanea();
+            if (instantanea.Estado != EstadoPartida.EnCurso || !instantanea.IdJugadorEnTurno.HasValue)
+            {
+                AvisarCajero("Botón del dado: la partida no está en curso.");
+                return;
+            }
+
+            // Mismas validaciones que TIRAR_DADOS, a nombre del jugador en turno.
+            ProcesarTirarDados(null, instantanea.IdJugadorEnTurno.Value);
+        }
+    }
+
+    private void AlLeerTarjeta(string uid)
+    {
+        lock (_candadoProcesamiento)
+        {
+            if (!_activo)
+            {
+                return;
+            }
+
+            Registrar($"Tarjeta leída: {uid}.");
+            if (_idVinculacion.HasValue)
+            {
+                int idJugador = _idVinculacion.Value;
+                ConexionCliente? solicitante = _conexionVinculacion;
+                _idVinculacion = null;
+                _conexionVinculacion = null;
+                ResultadoAccion vinculacion = _juego.VincularTarjeta(idJugador, uid);
+                if (vinculacion.Exito)
+                {
+                    DifundirCambios();
+                }
+                else
+                {
+                    if (solicitante != null)
+                    {
+                        ResponderError(solicitante, vinculacion.Mensaje);
+                    }
+
+                    AvisarCajero(vinculacion.Mensaje);
+                }
+
+                return;
+            }
+
+            InstantaneaJuego instantanea = _juego.ObtenerInstantanea();
+            if (instantanea.Estado == EstadoPartida.EnCurso && instantanea.IdDeudor.HasValue)
+            {
+                // Pago pendiente: solo la tarjeta del deudor lo ejecuta.
+                ResultadoAccion pago = _juego.IdentificarTarjeta(uid);
+                if (pago.Exito)
+                {
+                    DifundirCambios();
+                }
+                else
+                {
+                    AvisarCajero(pago.Mensaje);
+                }
+
+                return;
+            }
+
+            // Fuera de un pago: solo se informa de quién es la tarjeta y su saldo.
+            AvisarCajero(_juego.ConsultarTarjeta(uid).Mensaje);
+        }
+    }
+
+    private void AlCambiarEstadoCajero(EstadoCajero estado)
+    {
+        lock (_candadoProcesamiento)
+        {
+            if (estado == EstadoCajero.Desconectado)
+            {
+                _idVinculacion = null;
+                _conexionVinculacion = null;
+            }
+
+            if (estado == EstadoCajero.Conectado || estado == EstadoCajero.Desconectado)
+            {
+                InformarCambioCajero();
+            }
+        }
+    }
+
+    private void AlRecibirErrorCajero(string detalle)
+    {
+        lock (_candadoProcesamiento)
+        {
+            Registrar("Error del cajero: " + detalle);
+            AvisarCajero("Error del módulo: " + detalle);
+        }
+    }
+
+    /// <summary>
+    /// Avisa a todos el estado del cajero y envía el ESTADO (que indica si hay cajero físico).
+    /// </summary>
+    private void InformarCambioCajero()
+    {
+        if (!_activo)
+        {
+            return;
+        }
+
+        AvisarCajero(CajeroFisicoActivo
+            ? $"{_cajero.Descripcion} conectado: los dados se muestran en los displays y se paga con la tarjeta."
+            : "Sin cajero físico: se juega en modo simulado (botones de la pantalla).");
+        EnviarATodos(CodificarEstado());
+    }
+
+    /// <summary>
+    /// Mensaje del cajero para todos los jugadores (no forma parte del registro de la partida).
+    /// </summary>
+    private void AvisarCajero(string texto)
+    {
+        Registrar("Cajero: " + texto);
+        EnviarATodos(Protocolo.Codificar(Protocolo.Evento, "Cajero: " + texto));
+    }
+
+    private bool EsOrganizador(int idJugador)
+    {
+        EstadoJugador[] jugadores = _juego.ObtenerInstantanea().Jugadores;
+        return jugadores.Length > 0 && jugadores[0].Id == idJugador;
     }
 
     private void ProcesarConsultarTransacciones(ConexionCliente conexion, Mensaje mensaje)
@@ -524,7 +825,7 @@ public sealed class Servidor : IDisposable
         int[] ids = new int[desconectados.Cantidad];
         int i = 0;
         desconectados.Recorrer(id => ids[i++] = id);
-        return new EstadoRed(instantanea, _idUltimoMovimiento, _ultimasRecorridas, ids);
+        return new EstadoRed(instantanea, _idUltimoMovimiento, _ultimasRecorridas, ids, CajeroFisicoActivo);
     }
 
     private string CodificarFin(InstantaneaJuego instantanea)

@@ -64,6 +64,12 @@ public static class Protocolo
     /// <summary>Cliente → servidor: <c>RETIRAR_JUGADOR|idJugador</c> (solo el organizador, solo jugadores desconectados).</summary>
     public const string RetirarJugador = "RETIRAR_JUGADOR";
 
+    /// <summary>
+    /// Cliente → servidor: <c>VINCULAR_TARJETA|idJugador</c> (solo el organizador, con el cajero físico conectado):
+    /// la próxima tarjeta que lea el cajero queda vinculada a ese jugador. <c>0</c> cancela.
+    /// </summary>
+    public const string VincularTarjeta = "VINCULAR_TARJETA";
+
     // Mensajes del servidor.
 
     /// <summary>Servidor → cliente: <c>BIENVENIDA|idJugador|nombre</c>.</summary>

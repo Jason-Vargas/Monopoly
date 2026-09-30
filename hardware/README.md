@@ -171,7 +171,45 @@ Notas para el programa de la computadora:
 - `LISTO` se envía al arrancar, quizá antes de que la computadora abra el puerto: al conectarse, envíe `PING` y espere `PONG`.
 - No envíe nunca el carácter Ctrl+C (0x03): MicroPython lo interpreta como "detener el programa".
 
-## 8. Solución de problemas
+## 8. Integración con el juego
+
+La Pico se conecta a la computadora del **organizador**, que aloja al banco. Los demás jugadores no necesitan nada: ven en su pantalla todo lo que pasa en el cajero.
+
+### Conectar
+
+1. Cierre Thonny (el puerto solo lo puede usar un programa a la vez).
+2. Conecte la Pico por USB y abra el juego → **Crear partida**.
+3. En la barra **Cajero (Pico W)** (arriba en la sala de espera y en la ventana de juego del organizador):
+   - elija el puerto COM y pulse **Conectar**, o
+   - pulse **Detectar**: el juego prueba cada puerto enviando `PING` y se conecta al que responde `PONG`.
+4. El indicador muestra el estado: `○ Sin cajero: modo simulado`, `● Pico W en COM5: …` (verde) o `● … desconectado: modo simulado` (naranja).
+
+El puerto se abre a 115200 baudios, con `NewLine = "\n"` y **DTR y RTS activos** (sin DTR la Pico puede no enviar datos al PC). Un hilo aparte lee las líneas; las que no son del protocolo (mensajes de arranque de MicroPython, eco de la consola, UIDs mal formados) se ignoran. Cada 2 s se envía `PING`; si la Pico deja de responder durante ~7 s o se desconecta el cable, el juego **vuelve solo al modo simulado** sin cerrar la partida, y se puede pulsar **Conectar** de nuevo.
+
+En Windows, la Pico con MicroPython aparece en el Administrador de dispositivos como "Dispositivo serie USB (COMx)" (USB VID `2E8A`, PID `0005`).
+
+### Registrar las tarjetas (sala de espera)
+
+1. Con la Pico conectada, el organizador elige un jugador en la lista y pulsa **Vincular tarjeta**.
+2. Se acerca la tarjeta al lector: queda asociada a ese jugador (la lista muestra "· tarjeta RFID"). Un mismo UID no puede quedar asignado a dos jugadores.
+3. **Cancelar vinculación** anula la espera. Los jugadores sin tarjeta física siguen usando su UID virtual (botón "Pagar con tarjeta").
+
+### Durante la partida
+
+| En el cajero | Qué hace el servidor |
+|---|---|
+| Se presiona el **botón** | Lo trata como `TIRAR_DADOS` del jugador en turno, con todas las validaciones (fuera de partida o dados ya lanzados → aviso en todas las pantallas). Genera la tirada, envía `DADOS:d1,d2` a la Pico y la difunde a todos los jugadores. |
+| Un jugador tira desde su pantalla | La tirada también se envía a la Pico para mostrarla en los displays. |
+| Se lee una tarjeta **con un pago pendiente** | `IdentificarTarjeta(uid)`: si es la del deudor, se ejecuta el pago, se registra la transacción y todos lo ven; si es de otro jugador o no está registrada, se rechaza con un aviso. |
+| Se lee una tarjeta **sin pago pendiente** | Solo se informa de quién es y su saldo ("Cajero: Tarjeta de Beto: saldo $1,496."), sin modificar nada. |
+| El módulo envía `ERROR:…` | Se muestra "Cajero: Error del módulo: …" en todas las pantallas. |
+
+- La tarjeta **solo identifica** al jugador: el saldo vive siempre en el servidor.
+- Con la Pico conectada, un jugador con **tarjeta física** debe pagar con el lector: su botón "Pagar con tarjeta" se deshabilita (y el servidor rechaza el pago simulado). Si la Pico se desconecta, vuelve a poder usar el botón.
+
+En el código: `Monopoly.Core.Hardware` (`IDispositivoCajero`, `CajeroPico` sobre `SerialPort`, `CajeroSimulado`, `CajeroPorLineas`, `ProtocoloCajero`) y `Servidor.UsarCajero(...)`.
+
+## 9. Solución de problemas
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
@@ -187,3 +225,6 @@ Notas para el programa de la computadora:
 | No lee las tarjetas | Tarjeta de otra frecuencia (125 kHz) o demasiado lejos | Usar tarjetas MIFARE de 13,56 MHz; apoyarlas sobre la antena |
 | `BOTON` aparece solo o varias veces | El pulsador está conectado "siempre cerrado" (patas del mismo lado) | Usar dos patas en diagonal |
 | El juego no recibe nada | Thonny sigue abierto, o `main.py` no se guardó en la Pico | Cerrar Thonny; comprobar que `main.py` está en la Pico y reconectarla |
+| "No se pudo abrir COMx: está en uso por otro programa" | Thonny (u otra ventana del juego) tiene el puerto | Cerrar Thonny y pulsar Conectar |
+| "COMx no respondió a PING" | La Pico está en la consola de MicroPython (`>>>`) sin ejecutar `main.py`, o ese puerto es otro dispositivo | Desconectar y conectar la Pico (ejecuta `main.py` al arrancar) o usar Detectar |
+| "Detectar" tarda | Prueba también los puertos Bluetooth del equipo | Esperar, o elegir el puerto a mano |
