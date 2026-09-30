@@ -836,7 +836,7 @@ public class Juego
             if (deudor.PuedePagar(pago.Monto))
             {
                 PagarA(deudor, pago.Acreedor, pago.Monto, pago.Tipo, pago.Descripcion);
-                return FinalizarPagoExitoso($"{deudor.Nombre} pagó {Formato.Dinero(pago.Monto)} a {NombreAcreedor(pago.Acreedor)}.");
+                return FinalizarPagoExitoso($"{deudor.Nombre} pagó {Formato.Dinero(pago.Monto)} {DestinoPago(pago.Acreedor)}.");
             }
 
             PagarLoQueTiene(deudor, pago.Acreedor, pago.Monto, pago.Tipo, pago.Descripcion);
@@ -1052,15 +1052,18 @@ public class Juego
         return (uid ?? string.Empty).Replace(" ", string.Empty).Trim().ToUpperInvariant();
     }
 
-    private static string NombreAcreedor(Jugador? acreedor)
+    /// <summary>
+    /// Complemento "a Ana" / "al banco" para los mensajes de pago.
+    /// </summary>
+    private static string DestinoPago(Jugador? acreedor)
     {
-        return acreedor?.Nombre ?? "el banco";
+        return acreedor == null ? "al banco" : "a " + acreedor.Nombre;
     }
 
     private static string DescribirPago(PagoPendiente pago)
     {
-        string destino = pago.ACadaJugador ? "cada jugador" : NombreAcreedor(pago.Acreedor);
-        return $"{pago.Deudor.Nombre} debe pagar {Formato.Dinero(pago.Monto)} a {destino}";
+        string destino = pago.ACadaJugador ? "a cada jugador" : DestinoPago(pago.Acreedor);
+        return $"{pago.Deudor.Nombre} debe pagar {Formato.Dinero(pago.Monto)} {destino}";
     }
 
     private void RegistrarEvento(string texto)

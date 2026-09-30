@@ -49,6 +49,12 @@ public abstract class Casilla
     public abstract string Categoria { get; }
 
     /// <summary>
+    /// Texto secundario que se muestra en el tablero (precio, monto del impuesto, indicación...).
+    /// Cada tipo de casilla lo define; por defecto está vacío.
+    /// </summary>
+    public virtual string Detalle => string.Empty;
+
+    /// <summary>
     /// Determina lo que ocurre cuando un jugador cae en la casilla. No modifica saldos, posiciones
     /// ni propietarios: describe los efectos en el resultado para que el banco los valide y aplique.
     /// </summary>

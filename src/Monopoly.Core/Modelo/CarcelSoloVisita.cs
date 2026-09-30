@@ -22,6 +22,9 @@ public class CarcelSoloVisita : CasillaEspecial
     public override string Categoria => "Cárcel";
 
     /// <inheritdoc/>
+    public override string Detalle => "Solo de visita";
+
+    /// <inheritdoc/>
     public override ResultadoCasilla AlCaer(Jugador jugador, Juego juego)
     {
         ArgumentNullException.ThrowIfNull(jugador);

@@ -85,6 +85,17 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
 - `PAGAR_CON_TARJETA` = modo simulado (UID del propio jugador). El lector RFID real se integrará en la etapa de hardware.
 - `src/Monopoly.ClienteConsola` es una herramienta **temporal** de depuración (`servidor [puerto]` / `cliente [host] [puerto] [nombre]`).
 
+## Diseño de la interfaz (`Monopoly.App`, Windows Forms)
+
+- Flujo de ventanas (`ContextoAplicacion`): `FormularioInicio` → `FormularioSalaEspera` → `FormularioJuego` (+ `FormularioHistorial`, `FormularioFin`). Cerrar la ventana activa cierra la sesión y, si es el organizador, el servidor.
+- **Crear partida**: la app crea `Juego` + `Servidor` en segundo plano y conecta al organizador a `127.0.0.1` como un cliente más. **La interfaz nunca llama a `Juego`**: todo pasa por el protocolo (`SesionJuego.Cliente`).
+- `SesionJuego` reenvía los eventos del `Cliente` (hilo de red) al hilo de la interfaz con `Control.BeginInvoke`; los formularios se suscriben a los eventos de la sesión y se desuscriben en `OnFormClosed`. Guarda `UltimoEstado`, el registro de eventos y el FIN.
+- `PanelTablero` (GDI+, `OptimizedDoubleBuffer`, `ResizeRedraw`): lado de 13 unidades (esquinas 2×2, casillas 1×2); 0 abajo a la derecha y sentido horario. Laterales rotados 90°/270°; la fila de arriba se dibuja sin girar con la franja abajo para que el texto se lea. Los textos salen de miembros polimórficos (`Nombre`, `Categoria`, `Detalle`) y los colores de `Tablero.BuscarPropiedad(i)?.Grupo`: **sin chequear el tipo de casilla**.
+- Animación: al recibir `DADOS` se marca que el siguiente `ESTADO` se anima; un `Timer` de WinForms mueve la ficha por `CasillasRecorridas` (hacia adelante o atrás) y al final se ajusta a las posiciones del estado.
+- Botones habilitados según el último `ESTADO` (turno propio + fase; "Pagar con tarjeta" si soy el deudor). El servidor valida igual.
+- Argumentos de prueba: `--crear Nombre [puerto] [maxTurnos]` y `--unirse Nombre [ip] [puerto]`.
+- `Paleta`: verde del tablero, colores de grupo y de ficha. `Casilla.Detalle` (virtual) da el texto secundario de cada casilla.
+
 ## Resumen de requisitos del enunciado
 
 1. **Descripción general**: Monopoly Electrónico simplificado, cliente-servidor, POO, estructuras lineales y lector RFID. Partida de 4 jugadores; demo con al menos 2 computadoras en red. Temática visual libre.
@@ -116,15 +127,15 @@ Marcar con `[x]` al completar cada punto en su etapa.
 
 - [x] 0. Estructura inicial de la solución (Core, App, Tests), CLAUDE.md, .gitignore, README
 - [x] 0.1. Estructuras genéricas en `Monopoly.Core.Estructuras` con pruebas: `ListaSimple<T>`, `ListaDobleEnlazada<T>`, `ListaCircularDoble<T>`/`NodoCircularDoble<T>`, `ColaCircular<T>` (sobre arreglo), `Cola<T>` (enlazada). Base de los puntos 4, 5, 8, 10 y 12, que se marcarán cuando el modelo las use.
-- [ ] 1. Descripción general: partida de 4 jugadores en al menos 2 computadoras; temática definida (Atlantic City en español)
+- [ ] 1. Descripción general: partida de 4 jugadores en al menos 2 computadoras; temática definida (Atlantic City en español) — *probado con 4 ventanas en una computadora; falta probar en 2 computadoras*
 - [ ] 2. Objetivos cubiertos (POO, estructuras propias, cliente-servidor, estado centralizado, transacciones, hardware)
-- [ ] 3. Arquitectura: servidor/banco con estado oficial en la máquina del organizador; clientes solo solicitan acciones — *lógica y servidor TCP listos; falta que la interfaz levante el servidor en la máquina del organizador*
+- [x] 3. Arquitectura: servidor/banco con estado oficial en la máquina del organizador; clientes solo solicitan acciones
 - [x] 4. Jugador con id, nombre, saldo, posición, estado activo y propiedades en estructura lineal propia (`ListaSimple<Propiedad>`)
-- [ ] 5. Tablero como lista circular doblemente enlazada con ≥ 24 casillas, visible para todos — *modelo listo (40 casillas clásicas en `ListaCircularDoble`); falta mostrarlo a todos (interfaz/red)*
+- [x] 5. Tablero como lista circular doblemente enlazada con ≥ 24 casillas, visible para todos
 - [x] 6. Casilla base + Propiedad, CasillaEvento, CasillaEspecial con polimorfismo
 - [x] 7. Propiedades: datos mínimos y comportamiento comprar / alquiler / propia
 - [x] 8. Turnos con cola circular, avance automático, bloqueo fuera de turno
-- [ ] 9. Dos dados por turno, resultado transmitido, movimiento nodo a nodo mostrado a todos — *lógica y red listas (`DADOS` + casillas recorridas en `ESTADO`); falta animarlo en la interfaz*
+- [x] 9. Dos dados por turno, resultado transmitido, movimiento nodo a nodo mostrado a todos (animado en la interfaz)
 - [x] 10. Mazo de cartas de evento que devuelve la carta al final; los 6 tipos de evento
 - [x] 11. Transacciones con todos los campos y los 7 tipos mínimos; banco como origen/destino
 - [x] 12. Historial: agregar, recorrer ambos sentidos, buscar por jugador y por tipo, imprimir todo

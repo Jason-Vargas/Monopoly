@@ -9,12 +9,13 @@ namespace Monopoly.App;
 internal static class Program
 {
     /// <summary>
-    /// Inicia la aplicación y muestra el formulario principal.
+    /// Inicia la aplicación. Argumentos opcionales para pruebas:
+    /// <c>--crear Nombre [puerto] [maxTurnos]</c> o <c>--unirse Nombre [ip] [puerto]</c>.
     /// </summary>
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
-        Application.Run(new FormularioPrincipal());
+        Application.Run(new ContextoAplicacion(ArgumentosInicio.Interpretar(args)));
     }
 }
