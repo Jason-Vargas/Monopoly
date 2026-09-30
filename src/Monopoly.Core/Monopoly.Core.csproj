@@ -1,8 +1,13 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>Monopoly.Core</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Las pruebas pueden preparar escenarios con los métodos internos (Acreditar, AgregarPropiedad, ...). -->
+    <InternalsVisibleTo Include="Monopoly.Tests" />
+  </ItemGroup>
 
 </Project>

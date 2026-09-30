@@ -4,8 +4,8 @@ using Monopoly.Core.Estructuras;
 namespace Monopoly.Core.Modelo;
 
 /// <summary>
-/// Jugador de la partida. Su estado solo cambia mediante métodos que validan cada operación;
-/// en la arquitectura cliente-servidor, únicamente el banco (servidor) los invoca.
+/// Jugador de la partida. Su estado solo cambia mediante métodos <c>internal</c> que validan cada operación:
+/// fuera de Monopoly.Core (red, interfaz) es de solo lectura. El dinero solo lo mueve <see cref="Logica.Banco"/>.
 /// </summary>
 public class Jugador
 {
@@ -14,7 +14,7 @@ public class Jugador
     /// </summary>
     public const int SaldoInicial = 1500;
 
-    private readonly ListaSimple<Propiedad> _propiedades = new ListaSimple<Propiedad>();
+    private ListaSimple<Propiedad> _propiedades = new ListaSimple<Propiedad>();
 
     /// <summary>
     /// Crea un jugador activo con el saldo inicial y sin propiedades.
@@ -83,7 +83,7 @@ public class Jugador
     /// <summary>
     /// UID de la tarjeta RFID asociada, o <c>null</c> si no tiene (modo simulado).
     /// </summary>
-    public string? UidTarjeta { get; set; }
+    public string? UidTarjeta { get; internal set; }
 
     /// <summary>
     /// Color de la ficha.
@@ -110,7 +110,7 @@ public class Jugador
     /// </summary>
     /// <param name="monto">Monto a acreditar (0 o más).</param>
     /// <exception cref="ArgumentOutOfRangeException">Si el monto es negativo.</exception>
-    public void Acreditar(int monto)
+    internal void Acreditar(int monto)
     {
         ValidarMonto(monto);
         Saldo += monto;
@@ -122,7 +122,7 @@ public class Jugador
     /// <param name="monto">Monto a debitar (0 o más).</param>
     /// <exception cref="ArgumentOutOfRangeException">Si el monto es negativo.</exception>
     /// <exception cref="InvalidOperationException">Si el saldo no alcanza.</exception>
-    public void Debitar(int monto)
+    internal void Debitar(int monto)
     {
         ValidarMonto(monto);
         if (!PuedePagar(monto))
@@ -139,7 +139,7 @@ public class Jugador
     /// </summary>
     /// <param name="propiedad">Propiedad a agregar.</param>
     /// <exception cref="InvalidOperationException">Si la propiedad ya tiene dueño.</exception>
-    public void AgregarPropiedad(Propiedad propiedad)
+    internal void AgregarPropiedad(Propiedad propiedad)
     {
         ArgumentNullException.ThrowIfNull(propiedad);
         if (propiedad.Propietario != null)
@@ -156,7 +156,7 @@ public class Jugador
     /// </summary>
     /// <param name="propiedad">Propiedad a quitar.</param>
     /// <returns><c>true</c> si el jugador la tenía.</returns>
-    public bool QuitarPropiedad(Propiedad propiedad)
+    internal bool QuitarPropiedad(Propiedad propiedad)
     {
         ArgumentNullException.ThrowIfNull(propiedad);
         if (!_propiedades.Eliminar(propiedad))
@@ -202,7 +202,7 @@ public class Jugador
     /// </summary>
     /// <param name="turnos">Cantidad de turnos (0 o más).</param>
     /// <exception cref="ArgumentOutOfRangeException">Si la cantidad es negativa.</exception>
-    public void PerderTurnos(int turnos)
+    internal void PerderTurnos(int turnos)
     {
         if (turnos < 0)
         {
@@ -216,7 +216,7 @@ public class Jugador
     /// Si el jugador tiene turnos por perder, consume uno.
     /// </summary>
     /// <returns><c>true</c> si el jugador debe saltarse este turno.</returns>
-    public bool ConsumirTurnoPerdido()
+    internal bool ConsumirTurnoPerdido()
     {
         if (TurnosPorPerder == 0)
         {
@@ -230,9 +230,21 @@ public class Jugador
     /// <summary>
     /// Marca al jugador como inactivo (eliminado de la partida).
     /// </summary>
-    public void Desactivar()
+    internal void Desactivar()
     {
         Activo = false;
+    }
+
+    /// <summary>
+    /// Devuelve todas las propiedades del jugador al banco (quedan sin dueño).
+    /// </summary>
+    /// <returns>La cantidad de propiedades liberadas.</returns>
+    internal int LiberarPropiedades()
+    {
+        int cantidad = _propiedades.Cantidad;
+        _propiedades.Recorrer(propiedad => propiedad.Propietario = null);
+        _propiedades = new ListaSimple<Propiedad>();
+        return cantidad;
     }
 
     /// <summary>
