@@ -28,51 +28,57 @@ public class Tablero
     private readonly ListaCircularDoble<Casilla> _casillas = new ListaCircularDoble<Casilla>();
 
     /// <summary>
+    /// Las mismas propiedades del tablero, en orden. Se guardan al construirlo (cuando se conoce su tipo)
+    /// para poder buscarlas por posición sin preguntar por el tipo de casilla.
+    /// </summary>
+    private readonly ListaSimple<Propiedad> _propiedades = new ListaSimple<Propiedad>();
+
+    /// <summary>
     /// Crea el tablero clásico con precios y alquileres base.
     /// </summary>
     public Tablero()
     {
         Salida = new Salida(0);
         _casillas.Agregar(Salida);
-        _casillas.Agregar(new Propiedad(1, "Avenida Mediterráneo", 60, 2, GrupoPropiedad.Marron));
+        AgregarPropiedad(new Propiedad(1, "Avenida Mediterráneo", 60, 2, GrupoPropiedad.Marron));
         _casillas.Agregar(new CasillaArcaComunal(2));
-        _casillas.Agregar(new Propiedad(3, "Avenida Báltica", 60, 4, GrupoPropiedad.Marron));
+        AgregarPropiedad(new Propiedad(3, "Avenida Báltica", 60, 4, GrupoPropiedad.Marron));
         _casillas.Agregar(new Impuesto(4, "Impuesto sobre la Renta", 200));
-        _casillas.Agregar(new Ferrocarril(5, "Ferrocarril Reading"));
-        _casillas.Agregar(new Propiedad(6, "Avenida Oriental", 100, 6, GrupoPropiedad.Celeste));
+        AgregarPropiedad(new Ferrocarril(5, "Ferrocarril Reading"));
+        AgregarPropiedad(new Propiedad(6, "Avenida Oriental", 100, 6, GrupoPropiedad.Celeste));
         _casillas.Agregar(new CasillaCasualidad(7));
-        _casillas.Agregar(new Propiedad(8, "Avenida Vermont", 100, 6, GrupoPropiedad.Celeste));
-        _casillas.Agregar(new Propiedad(9, "Avenida Connecticut", 120, 8, GrupoPropiedad.Celeste));
+        AgregarPropiedad(new Propiedad(8, "Avenida Vermont", 100, 6, GrupoPropiedad.Celeste));
+        AgregarPropiedad(new Propiedad(9, "Avenida Connecticut", 120, 8, GrupoPropiedad.Celeste));
         _casillas.Agregar(new CarcelSoloVisita(10));
-        _casillas.Agregar(new Propiedad(11, "Plaza San Carlos", 140, 10, GrupoPropiedad.Rosa));
-        _casillas.Agregar(new CompaniaServicio(12, "Compañía de Electricidad"));
-        _casillas.Agregar(new Propiedad(13, "Avenida de los Estados", 140, 10, GrupoPropiedad.Rosa));
-        _casillas.Agregar(new Propiedad(14, "Avenida Virginia", 160, 12, GrupoPropiedad.Rosa));
-        _casillas.Agregar(new Ferrocarril(15, "Ferrocarril Pensilvania"));
-        _casillas.Agregar(new Propiedad(16, "Plaza Santiago", 180, 14, GrupoPropiedad.Naranja));
+        AgregarPropiedad(new Propiedad(11, "Plaza San Carlos", 140, 10, GrupoPropiedad.Rosa));
+        AgregarPropiedad(new CompaniaServicio(12, "Compañía de Electricidad"));
+        AgregarPropiedad(new Propiedad(13, "Avenida de los Estados", 140, 10, GrupoPropiedad.Rosa));
+        AgregarPropiedad(new Propiedad(14, "Avenida Virginia", 160, 12, GrupoPropiedad.Rosa));
+        AgregarPropiedad(new Ferrocarril(15, "Ferrocarril Pensilvania"));
+        AgregarPropiedad(new Propiedad(16, "Plaza Santiago", 180, 14, GrupoPropiedad.Naranja));
         _casillas.Agregar(new CasillaArcaComunal(17));
-        _casillas.Agregar(new Propiedad(18, "Avenida Tennessee", 180, 14, GrupoPropiedad.Naranja));
-        _casillas.Agregar(new Propiedad(19, "Avenida Nueva York", 200, 16, GrupoPropiedad.Naranja));
+        AgregarPropiedad(new Propiedad(18, "Avenida Tennessee", 180, 14, GrupoPropiedad.Naranja));
+        AgregarPropiedad(new Propiedad(19, "Avenida Nueva York", 200, 16, GrupoPropiedad.Naranja));
         _casillas.Agregar(new ParadaLibre(20));
-        _casillas.Agregar(new Propiedad(21, "Avenida Kentucky", 220, 18, GrupoPropiedad.Rojo));
+        AgregarPropiedad(new Propiedad(21, "Avenida Kentucky", 220, 18, GrupoPropiedad.Rojo));
         _casillas.Agregar(new CasillaCasualidad(22));
-        _casillas.Agregar(new Propiedad(23, "Avenida Indiana", 220, 18, GrupoPropiedad.Rojo));
-        _casillas.Agregar(new Propiedad(24, "Avenida Illinois", 240, 20, GrupoPropiedad.Rojo));
-        _casillas.Agregar(new Ferrocarril(25, "Ferrocarril B&O"));
-        _casillas.Agregar(new Propiedad(26, "Avenida Atlántico", 260, 22, GrupoPropiedad.Amarillo));
-        _casillas.Agregar(new Propiedad(27, "Avenida Ventnor", 260, 22, GrupoPropiedad.Amarillo));
-        _casillas.Agregar(new CompaniaServicio(28, "Compañía de Agua"));
-        _casillas.Agregar(new Propiedad(29, "Jardines Marvin", 280, 24, GrupoPropiedad.Amarillo));
+        AgregarPropiedad(new Propiedad(23, "Avenida Indiana", 220, 18, GrupoPropiedad.Rojo));
+        AgregarPropiedad(new Propiedad(24, "Avenida Illinois", 240, 20, GrupoPropiedad.Rojo));
+        AgregarPropiedad(new Ferrocarril(25, "Ferrocarril B&O"));
+        AgregarPropiedad(new Propiedad(26, "Avenida Atlántico", 260, 22, GrupoPropiedad.Amarillo));
+        AgregarPropiedad(new Propiedad(27, "Avenida Ventnor", 260, 22, GrupoPropiedad.Amarillo));
+        AgregarPropiedad(new CompaniaServicio(28, "Compañía de Agua"));
+        AgregarPropiedad(new Propiedad(29, "Jardines Marvin", 280, 24, GrupoPropiedad.Amarillo));
         _casillas.Agregar(new VayaALaCarcel(30));
-        _casillas.Agregar(new Propiedad(31, "Avenida Pacífico", 300, 26, GrupoPropiedad.Verde));
-        _casillas.Agregar(new Propiedad(32, "Avenida Carolina del Norte", 300, 26, GrupoPropiedad.Verde));
+        AgregarPropiedad(new Propiedad(31, "Avenida Pacífico", 300, 26, GrupoPropiedad.Verde));
+        AgregarPropiedad(new Propiedad(32, "Avenida Carolina del Norte", 300, 26, GrupoPropiedad.Verde));
         _casillas.Agregar(new CasillaArcaComunal(33));
-        _casillas.Agregar(new Propiedad(34, "Avenida Pensilvania", 320, 28, GrupoPropiedad.Verde));
-        _casillas.Agregar(new Ferrocarril(35, "Ferrocarril Vía Corta"));
+        AgregarPropiedad(new Propiedad(34, "Avenida Pensilvania", 320, 28, GrupoPropiedad.Verde));
+        AgregarPropiedad(new Ferrocarril(35, "Ferrocarril Vía Corta"));
         _casillas.Agregar(new CasillaCasualidad(36));
-        _casillas.Agregar(new Propiedad(37, "Plaza del Parque", 350, 35, GrupoPropiedad.AzulOscuro));
+        AgregarPropiedad(new Propiedad(37, "Plaza del Parque", 350, 35, GrupoPropiedad.AzulOscuro));
         _casillas.Agregar(new Impuesto(38, "Impuesto de Lujo", 100));
-        _casillas.Agregar(new Propiedad(39, "Paseo Marítimo", 400, 50, GrupoPropiedad.AzulOscuro));
+        AgregarPropiedad(new Propiedad(39, "Paseo Marítimo", 400, 50, GrupoPropiedad.AzulOscuro));
     }
 
     /// <summary>
@@ -121,6 +127,30 @@ public class Tablero
             }
         });
         return resultado;
+    }
+
+    /// <summary>
+    /// Cantidad de propiedades (calles, ferrocarriles y compañías) del tablero.
+    /// </summary>
+    public int CantidadPropiedades => _propiedades.Cantidad;
+
+    /// <summary>
+    /// Busca la propiedad que está en la posición indicada.
+    /// </summary>
+    /// <param name="indice">Posición de la casilla.</param>
+    /// <returns>La propiedad, o <c>null</c> si esa casilla no es una propiedad.</returns>
+    public Propiedad? BuscarPropiedad(int indice)
+    {
+        return _propiedades.Buscar(propiedad => propiedad.Id == indice);
+    }
+
+    /// <summary>
+    /// Recorre las propiedades del tablero en orden.
+    /// </summary>
+    /// <param name="accion">Acción a ejecutar con cada propiedad.</param>
+    public void RecorrerPropiedades(Action<Propiedad> accion)
+    {
+        _propiedades.Recorrer(accion);
     }
 
     /// <summary>
@@ -199,6 +229,12 @@ public class Tablero
         NodoCircularDoble<Casilla> destino = _casillas.ObtenerNodo(indiceDestino);
         jugador.Posicion = destino;
         return new ResultadoMovimiento(inicio.Valor, destino.Valor, new ListaSimple<Casilla>(), 0);
+    }
+
+    private void AgregarPropiedad(Propiedad propiedad)
+    {
+        _casillas.Agregar(propiedad);
+        _propiedades.AgregarAlFinal(propiedad);
     }
 
     private static NodoCircularDoble<Casilla> ObtenerPosicion(Jugador jugador)

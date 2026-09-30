@@ -58,7 +58,21 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
 - Cartas: `TipoCartaEvento` tiene los 6 tipos del enunciado más `PagarACadaJugador` y `CobrarACadaJugador` (generan `PagoEntreJugadores`). `MazoCartas` envuelve una `Cola<CartaEvento>`: `Sacar()` desencola y reencola; `Barajar(Random)` usa un arreglo auxiliar (Fisher-Yates). 13 cartas por mazo en `CartasClasicas`.
 - `Dado`: aleatorio, con semilla (`new Dado(semilla)`) o determinista (`Dado.ConValoresFijos(3, 4, ...)`), devuelve `TiradaDados`.
 - `HistorialTransacciones` (sobre `ListaDobleEnlazada<Transaccion>`): `Registrar(...)` numera y fecha; `ExportarTxt(ruta, fechaPartida, jugadores)` escribe encabezado + tabla en UTF-8. El reloj es inyectable para pruebas.
-- `Logica.Juego` es por ahora un **esqueleto** (tablero, mazos barajados, dado, historial, fecha de inicio); jugadores, turnos y reglas se agregan en la etapa de lógica.
+- Los métodos que modifican a `Jugador` (`Acreditar`, `Debitar`, `AgregarPropiedad`, `QuitarPropiedad`, `PerderTurnos`, `Desactivar`, `LiberarPropiedades`, setter de `UidTarjeta`) son **`internal`**: fuera de Core (red, interfaz) el modelo es de solo lectura. `InternalsVisibleTo` los abre solo a Monopoly.Tests.
+- `Tablero` guarda además las 28 propiedades en una `ListaSimple<Propiedad>` (`BuscarPropiedad(indice)`), para encontrarlas sin chequear el tipo de casilla.
+
+## Diseño de la lógica (`Monopoly.Core.Logica`)
+
+- **`Banco`** es la única clase que mueve dinero: `Pagar` (banco → jugador), `Cobrar` (jugador → banco), `Transferir` (jugador → jugador). Valida monto > 0 y saldo (lanza sin modificar nada) y registra cada `Transaccion`.
+- **`Juego`** es el estado oficial. Configuración con `OpcionesJuego` (dado, reloj, cartas sin barajar, saldo inicial, `MaximoTurnos` = 100, `CarpetaPartidas` = "partidas", `ExportarAlFinalizar`).
+- API pública (todas con `lock` sobre `_candado`; devuelven `ResultadoAccion` con `Exito`/`Mensaje`, nunca lanzan por reglas del juego): `UnirJugador(nombre)` → id + UID virtual `VIRTUAL-{id}`; `VincularTarjeta(id, uid)`; `IniciarPartida(id)` (solo el organizador = primer jugador); `TirarDados(id)`; `ComprarPropiedad(id)`; `NoComprar(id)`; `IdentificarTarjeta(uid)`; `TerminarTurno(id)`; `ConsultarEstado(id)` → `InstantaneaJuego`; `ConsultarTransacciones(id)`; `ExportarHistorial()`; `ObtenerEventosDesde(n)`; `ObtenerJugador(id)`.
+- Estado: `EstadoPartida` (EsperandoJugadores, EnCurso, Finalizada) y `FaseTurno` (EsperandoDados → EsperandoDecisionCompra / EsperandoPago → PuedeTerminar).
+- Turnos: `ColaCircular<Jugador>` solo con jugadores activos; el frente es el jugador en turno. `TerminarTurno` rota; los jugadores con `TurnosPorPerder` se saltan consumiendo un turno (el turno saltado cuenta en `NumeroTurno`). Sin regla de dobles.
+- Efectos: `TirarDados` mueve y resuelve la casilla; `AplicarEfectos` aplica el `ResultadoCasilla` de forma genérica y encadena movimientos de cartas (máx. 10 niveles). Los UID se normalizan (sin espacios, en mayúsculas).
+- **Pagos obligatorios** (alquiler, impuesto, carta de pagar, pagar a cada jugador) → `EsperandoPago` hasta `IdentificarTarjeta(uid del deudor)`. `CobrarACadaJugador` (cumpleaños) se cobra automáticamente a los demás.
+- **Eliminación**: si no cubre un pago obligatorio, paga lo que tiene ("pago parcial"), queda inactivo, sus propiedades se liberan y sale de la cola; si era su turno, pasa al siguiente.
+- **Fin**: queda un único activo, o se completa `MaximoTurnos` (gana el mayor patrimonio; en empate, el primero en la cola). Exporta automáticamente `partidas/partida_AAAA-MM-DD_HH-mm-ss.txt`.
+- Registro de eventos legible: `ListaDobleEnlazada<EventoJuego>`; la red enviará los nuevos con `ObtenerEventosDesde`.
 
 ## Resumen de requisitos del enunciado
 
@@ -93,22 +107,22 @@ Marcar con `[x]` al completar cada punto en su etapa.
 - [x] 0.1. Estructuras genéricas en `Monopoly.Core.Estructuras` con pruebas: `ListaSimple<T>`, `ListaDobleEnlazada<T>`, `ListaCircularDoble<T>`/`NodoCircularDoble<T>`, `ColaCircular<T>` (sobre arreglo), `Cola<T>` (enlazada). Base de los puntos 4, 5, 8, 10 y 12, que se marcarán cuando el modelo las use.
 - [ ] 1. Descripción general: partida de 4 jugadores en al menos 2 computadoras; temática definida (Atlantic City en español)
 - [ ] 2. Objetivos cubiertos (POO, estructuras propias, cliente-servidor, estado centralizado, transacciones, hardware)
-- [ ] 3. Arquitectura: servidor/banco con estado oficial en la máquina del organizador; clientes solo solicitan acciones
+- [ ] 3. Arquitectura: servidor/banco con estado oficial en la máquina del organizador; clientes solo solicitan acciones — *lógica lista (`Juego` + `Banco`, modelo de solo lectura fuera de Core); falta el servidor TCP*
 - [x] 4. Jugador con id, nombre, saldo, posición, estado activo y propiedades en estructura lineal propia (`ListaSimple<Propiedad>`)
 - [ ] 5. Tablero como lista circular doblemente enlazada con ≥ 24 casillas, visible para todos — *modelo listo (40 casillas clásicas en `ListaCircularDoble`); falta mostrarlo a todos (interfaz/red)*
 - [x] 6. Casilla base + Propiedad, CasillaEvento, CasillaEspecial con polimorfismo
-- [ ] 7. Propiedades: datos mínimos y comportamiento comprar / alquiler / propia — *modelo listo (`AlCaer` ofrece compra / exige alquiler / nada); falta ejecutar la compra y el pago en el banco*
-- [ ] 8. Turnos con cola circular, avance automático, bloqueo fuera de turno
-- [ ] 9. Dos dados por turno, resultado transmitido, movimiento nodo a nodo mostrado a todos
+- [x] 7. Propiedades: datos mínimos y comportamiento comprar / alquiler / propia
+- [x] 8. Turnos con cola circular, avance automático, bloqueo fuera de turno
+- [ ] 9. Dos dados por turno, resultado transmitido, movimiento nodo a nodo mostrado a todos — *lógica lista (`TirarDados` devuelve tirada y casillas recorridas); falta transmitir y animar*
 - [x] 10. Mazo de cartas de evento que devuelve la carta al final; los 6 tipos de evento
-- [ ] 11. Transacciones con todos los campos y los 7 tipos mínimos; banco como origen/destino — *clase y tipos listos; falta que el banco registre toda operación económica*
+- [x] 11. Transacciones con todos los campos y los 7 tipos mínimos; banco como origen/destino
 - [x] 12. Historial: agregar, recorrer ambos sentidos, buscar por jugador y por tipo, imprimir todo
 - [x] 13. Exportación del historial a TXT con los campos mínimos
-- [ ] 14. Módulo electrónico: dado de 2 dígitos + RFID (primero simulado, luego Arduino)
-- [ ] 15. Todas las clases mínimas presentes; ninguna colección de .NET — *presentes: Juego (esqueleto), Jugador, Tablero, Casilla, Propiedad, CasillaEvento, CasillaEspecial, CartaEvento, Dado, Transaccion; faltan Servidor, Cliente y Banco*
+- [ ] 14. Módulo electrónico: dado de 2 dígitos + RFID (primero simulado, luego Arduino) — *flujo de pago con tarjeta listo en modo simulado (UID virtual, `VincularTarjeta`, `IdentificarTarjeta`); falta el Arduino*
+- [ ] 15. Todas las clases mínimas presentes; ninguna colección de .NET — *faltan solo Servidor y Cliente*
 - [ ] 16. Comunicación por sockets TCP con protocolo documentado y difusión de estado
-- [ ] 17. Todas las validaciones del servidor
-- [ ] 18. Eliminación de jugadores y fin de partida (último activo o límite de turnos con patrimonio)
+- [x] 17. Todas las validaciones del servidor (en `Juego`; el cliente no puede modificar el modelo porque sus mutadores son `internal`)
+- [x] 18. Eliminación de jugadores y fin de partida (último activo o límite de turnos con patrimonio)
 - [ ] 19. Entregables: UML, doc. de estructuras, protocolo, archivo de transacciones, manual, hardware
 - [ ] 20. Preparación de la defensa (guion de demostración cubriendo todos los puntos)
 
