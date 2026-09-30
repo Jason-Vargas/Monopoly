@@ -25,6 +25,15 @@ internal sealed class ArgumentosInicio
     public int? MaximoTurnos { get; private set; }
 
     /// <summary>
+    /// Valores para volver a la ventana de inicio tras perder la conexión: el formulario queda relleno
+    /// (mismo nombre, IP y puerto) y el usuario pulsa "Unirse" cuando quiera.
+    /// </summary>
+    public static ArgumentosInicio ParaReconectar(string? nombre, string host, int puerto)
+    {
+        return new ArgumentosInicio { Modo = ModoInicio.Normal, Nombre = nombre, Host = host, Puerto = puerto };
+    }
+
+    /// <summary>
     /// Interpreta los argumentos; si no se reconocen, arranca en modo normal.
     /// </summary>
     public static ArgumentosInicio Interpretar(string[] args)

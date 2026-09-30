@@ -27,6 +27,7 @@ internal sealed class FormularioJuego : Form
     private readonly Button _btnPagar = CrearBoton("Pagar con tarjeta", Color.FromArgb(200, 120, 20));
     private readonly Button _btnTerminar = CrearBoton("Terminar turno", Color.FromArgb(150, 40, 40));
     private readonly Button _btnHistorial = CrearBoton("Historial de transacciones...", Color.FromArgb(70, 70, 90));
+    private readonly Button _btnRetirar = CrearBoton("Retirar jugadores desconectados...", Color.FromArgb(200, 100, 0));
     private readonly ListBox _lstRegistro = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false, HorizontalScrollbar = true };
     private readonly ToolStripStatusLabel _lblMensaje = new ToolStripStatusLabel { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
     private readonly ToolStripStatusLabel _lblConexion = new ToolStripStatusLabel();
@@ -63,6 +64,7 @@ internal sealed class FormularioJuego : Form
         _btnPagar.Click += (s, e) => Solicitar(cliente => cliente.PagarConTarjeta());
         _btnTerminar.Click += (s, e) => Solicitar(cliente => cliente.TerminarTurno());
         _btnHistorial.Click += (s, e) => AbrirHistorial();
+        _btnRetirar.Click += (s, e) => RetirarDesconectados();
 
         _sesion.EstadoActualizado += AlActualizarEstado;
         _sesion.EventoRecibido += AlRecibirEvento;
@@ -144,7 +146,12 @@ internal sealed class FormularioJuego : Form
         _lstRegistro.Font = new Font(Paleta.Fuente, 9f);
         lateral.Controls.Add(_lstRegistro, 0, 4);
         _btnHistorial.Width = 382;
-        lateral.Controls.Add(_btnHistorial, 0, 5);
+        _btnRetirar.Width = 382;
+        _btnRetirar.Visible = false;
+        FlowLayoutPanel inferiores = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.TopDown, Margin = new Padding(0) };
+        inferiores.Controls.Add(_btnRetirar);
+        inferiores.Controls.Add(_btnHistorial);
+        lateral.Controls.Add(inferiores, 0, 5);
 
         principal.Controls.Add(lateral, 1, 0);
         return principal;
@@ -200,12 +207,66 @@ internal sealed class FormularioJuego : Form
         _lblConexion.Text = "Desconectado";
         _lblMensaje.ForeColor = Color.FromArgb(170, 20, 20);
         _lblMensaje.Text = motivo;
-        if (_sesion.UltimoEstado?.Instantanea.Estado != EstadoPartida.Finalizada)
+        AgregarAlRegistro("⚠ " + motivo);
+        if (_sesion.EsOrganizador || _sesion.Cliente.CerradoPorElServidor
+            || _sesion.UltimoEstado?.Instantanea.Estado == EstadoPartida.Finalizada)
         {
-            MessageBox.Show(this, motivo + "\nCierre la ventana y vuelva a entrar con el mismo nombre para continuar.",
-                "Conexión perdida", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, motivo, "Conexión cerrada", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        // Un jugador que pierde la conexión sigue en la partida: puede volver con el mismo nombre.
+        string pregunta = motivo + "\n\nUsted sigue en la partida. ¿Desea volver a la pantalla de inicio para reconectarse " +
+                          "con el mismo nombre?";
+        if (MessageBox.Show(this, pregunta, "Conexión perdida", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
+        {
+            VolverParaReconectar = true;
+            Close();
         }
     }
+
+    private void RetirarDesconectados()
+    {
+        EstadoRed? estado = _sesion.UltimoEstado;
+        if (estado == null)
+        {
+            return;
+        }
+
+        string nombres = string.Empty;
+        foreach (int id in estado.IdsDesconectados)
+        {
+            EstadoJugador? jugador = estado.BuscarJugador(id);
+            if (jugador != null && jugador.Activo)
+            {
+                nombres += (nombres.Length > 0 ? ", " : string.Empty) + jugador.Nombre;
+            }
+        }
+
+        if (nombres.Length == 0)
+        {
+            return;
+        }
+
+        string pregunta = $"Se retirará de la partida a: {nombres}.\nSus propiedades volverán a estar libres y no podrán volver a jugar. ¿Continuar?";
+        if (MessageBox.Show(this, pregunta, "Retirar jugadores desconectados", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        foreach (int id in estado.IdsDesconectados)
+        {
+            if (estado.BuscarJugador(id)?.Activo == true)
+            {
+                Solicitar(cliente => cliente.RetirarJugador(id));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Indica si la ventana se cerró para volver al inicio y reconectarse.
+    /// </summary>
+    public bool VolverParaReconectar { get; private set; }
 
     private void Solicitar(Action<Cliente> solicitud)
     {
@@ -228,6 +289,18 @@ internal sealed class FormularioJuego : Form
         _btnTerminar.Enabled = miTurno && i!.Fase == FaseTurno.PuedeTerminar;
         _btnHistorial.Enabled = !_desconectado;
 
+        // El organizador puede retirar a jugadores desconectados para que la partida no quede esperándolos.
+        bool hayDesconectados = false;
+        if (enCurso && estado != null)
+        {
+            foreach (int id in estado.IdsDesconectados)
+            {
+                hayDesconectados |= estado.BuscarJugador(id)?.Activo == true;
+            }
+        }
+
+        _btnRetirar.Visible = _sesion.EsOrganizador && hayDesconectados;
+
         _lblInfo.BackColor = miTurno || _btnPagar.Enabled ? Color.FromArgb(255, 238, 170) : Color.White;
     }
 
@@ -246,6 +319,12 @@ internal sealed class FormularioJuego : Form
 
         bool miTurno = i.IdJugadorEnTurno == _sesion.IdJugador;
         string quien = miTurno ? "Usted" : estado.BuscarJugador(i.IdJugadorEnTurno.Value)?.Nombre ?? "?";
+        if (!miTurno && !estado.EstaConectado(i.IdJugadorEnTurno.Value))
+        {
+            string ayuda = _sesion.EsOrganizador ? "Espere o retírelo (botón naranja)." : "Espere a que vuelva o lo retire el organizador.";
+            return $"Turno {i.NumeroTurno}/{i.MaximoTurnos} · {quien} está DESCONECTADO.\n{ayuda}";
+        }
+
         string accion;
         switch (i.Fase)
         {

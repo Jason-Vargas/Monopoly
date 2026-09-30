@@ -14,6 +14,11 @@ namespace Monopoly.App;
 /// </summary>
 internal sealed class FormularioInicio : Form
 {
+    /// <summary>
+    /// Tiempo máximo para recibir BIENVENIDA o ERROR después de conectar.
+    /// </summary>
+    private const int TiempoEsperaBienvenidaMs = 8000;
+
     private readonly ArgumentosInicio _argumentos;
     private readonly TextBox _txtNombre = new TextBox();
     private readonly NumericUpDown _nudPuertoCrear = CrearNumero(1024, 65535, Servidor.PuertoPredeterminado);
@@ -38,7 +43,7 @@ internal sealed class FormularioInicio : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(520, 500);
+        ClientSize = new Size(520, 520);
         BackColor = Paleta.FondoPanel;
         Font = new Font(Paleta.Fuente, 10f);
 
@@ -85,7 +90,7 @@ internal sealed class FormularioInicio : Form
         grupoUnirse.Controls.Add(_btnUnirse);
         Controls.Add(grupoUnirse);
 
-        _lblEstado.SetBounds(24, 420, 466, 60);
+        _lblEstado.SetBounds(24, 418, 466, 90);
         Controls.Add(_lblEstado);
 
         AcceptButton = _btnUnirse;
@@ -137,7 +142,10 @@ internal sealed class FormularioInicio : Form
         }
         catch (SocketException ex)
         {
-            MostrarError($"No se pudo abrir el puerto {puerto} (¿ya hay un servidor en ese puerto?): {ex.Message}");
+            string detalle = ex.SocketErrorCode == SocketError.AddressAlreadyInUse
+                ? $"El puerto {puerto} ya está en uso en esta computadora (¿hay otra partida abierta?). Cierre la otra partida o elija otro puerto."
+                : $"No se pudo abrir el puerto {puerto}: {ex.Message}";
+            MostrarError(detalle, "No se pudo crear la partida");
             return;
         }
 
@@ -156,11 +164,56 @@ internal sealed class FormularioInicio : Form
 
         if (ip.Length == 0)
         {
-            MostrarError("Escriba la IP del servidor.");
+            MostrarError("Escriba la IP de la computadora del organizador (se muestra en su sala de espera).");
+            _txtIp.Focus();
+            return;
+        }
+
+        if (!EsDireccionValida(ip))
+        {
+            MostrarError($"'{ip}' no es una IP válida. Debe tener la forma 192.168.1.20 (cuatro números separados por puntos).", "IP incorrecta");
+            _txtIp.Focus();
             return;
         }
 
         await ConectarAsync(ip, (int)_nudPuertoUnirse.Value, nombre, null);
+    }
+
+    /// <summary>
+    /// Acepta una IPv4 completa (cuatro números de 0 a 255) o un nombre de equipo.
+    /// </summary>
+    private static bool EsDireccionValida(string direccion)
+    {
+        bool pareceIp = true;
+        foreach (char caracter in direccion)
+        {
+            if (!char.IsDigit(caracter) && caracter != '.')
+            {
+                pareceIp = false;
+                break;
+            }
+        }
+
+        if (!pareceIp)
+        {
+            return Uri.CheckHostName(direccion) == UriHostNameType.Dns;
+        }
+
+        string[] partes = direccion.Split('.');
+        if (partes.Length != 4)
+        {
+            return false;
+        }
+
+        foreach (string parte in partes)
+        {
+            if (parte.Length == 0 || parte.Length > 3 || int.Parse(parte, System.Globalization.CultureInfo.InvariantCulture) > 255)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private async Task ConectarAsync(string host, int puerto, string nombre, Servidor? servidor)
@@ -172,46 +225,51 @@ internal sealed class FormularioInicio : Form
         _sesionPendiente = sesion;
         Action<int, string>? alBienvenida = null;
         Action<string>? alError = null;
+        Timer esperaRespuesta = new Timer { Interval = TiempoEsperaBienvenidaMs };
 
-        void Desuscribir()
+        void Terminar()
         {
+            esperaRespuesta.Stop();
+            esperaRespuesta.Dispose();
             sesion.BienvenidaRecibida -= alBienvenida;
             sesion.ErrorRecibido -= alError;
             sesion.Desconectado -= alError;
+            _sesionPendiente = null;
+        }
+
+        void Fallar(string mensaje)
+        {
+            Terminar();
+            sesion.Dispose();
+            MostrarError(mensaje, "No se pudo unir a la partida");
+            HabilitarBotones(true);
         }
 
         alBienvenida = (id, nombreConfirmado) =>
         {
-            Desuscribir();
-            _sesionPendiente = null;
+            Terminar();
             SesionCreada?.Invoke(sesion);
         };
-        alError = mensaje =>
-        {
-            Desuscribir();
-            _sesionPendiente = null;
-            sesion.Dispose();
-            MostrarError(mensaje);
-            HabilitarBotones(true);
-        };
+
+        // Rechazos del servidor: partida llena, ya iniciada, nombre repetido, etc. (el texto viene del banco).
+        alError = mensaje => Fallar(mensaje);
         sesion.BienvenidaRecibida += alBienvenida;
         sesion.ErrorRecibido += alError;
         sesion.Desconectado += alError;
+        esperaRespuesta.Tick += (s, e) =>
+            Fallar($"Se abrió la conexión con {host}:{puerto}, pero no respondió como una partida de Monopoly. ¿Es correcto el puerto?");
 
         try
         {
             await Task.Run(() => sesion.Cliente.Conectar(host, puerto));
         }
-        catch (SocketException ex)
+        catch (Exception ex) when (ex is SocketException || ex is TimeoutException || ex is ArgumentException)
         {
-            Desuscribir();
-            _sesionPendiente = null;
-            sesion.Dispose();
-            MostrarError($"No se pudo conectar a {host}:{puerto}: {ex.Message}");
-            HabilitarBotones(true);
+            Fallar(Cliente.DescribirErrorConexion(ex, host, puerto));
             return;
         }
 
+        esperaRespuesta.Start();
         sesion.Solicitar(cliente => cliente.Unirse(nombre));
     }
 
@@ -260,10 +318,17 @@ internal sealed class FormularioInicio : Form
         _btnUnirse.Enabled = habilitar;
     }
 
-    private void MostrarError(string mensaje)
+    /// <summary>
+    /// Muestra un error en la etiqueta y, si se indica un título, también en un cuadro de diálogo.
+    /// </summary>
+    private void MostrarError(string mensaje, string? titulo = null)
     {
         _lblEstado.ForeColor = Color.FromArgb(170, 20, 20);
         _lblEstado.Text = mensaje;
+        if (titulo != null && Visible)
+        {
+            MessageBox.Show(this, mensaje, titulo, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     private void MostrarInformacion(string mensaje)

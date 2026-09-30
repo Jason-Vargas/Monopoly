@@ -5,6 +5,16 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>Monopoly.App</RootNamespace>
+    <Product>Monopoly Distribuido</Product>
+    <!-- Solo recursos en español: reduce el tamaño del .exe publicado. -->
+    <SatelliteResourceLanguages>es</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- Publicación en un único .exe autocontenido (ver publicar.ps1). Windows Forms no admite recorte (trimming). -->
+  <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishDocumentationFile>false</PublishDocumentationFile>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
   </PropertyGroup>
 
   <ItemGroup>

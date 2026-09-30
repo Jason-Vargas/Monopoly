@@ -137,7 +137,8 @@ internal sealed class FormularioSalaEspera : Form
         for (int i = 0; i < instantanea.Jugadores.Length; i++)
         {
             EstadoJugador j = instantanea.Jugadores[i];
-            string marcas = (i == 0 ? " · organizador" : string.Empty) + (j.Id == _sesion.IdJugador ? " · usted" : string.Empty);
+            string marcas = (i == 0 ? " · organizador" : string.Empty) + (j.Id == _sesion.IdJugador ? " · usted" : string.Empty)
+                + (estado.EstaConectado(j.Id) ? string.Empty : " · DESCONECTADO");
             _lstJugadores.Items.Add($"{j.Id}. {j.Nombre} — ficha {j.ColorFicha}{marcas}");
         }
 
@@ -170,9 +171,17 @@ internal sealed class FormularioSalaEspera : Form
     private void AlDesconectar(string motivo)
     {
         _btnIniciar.Enabled = false;
-        MessageBox.Show(this, motivo, "Conexión perdida", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        bool puedeVolver = !_sesion.EsOrganizador && !_sesion.Cliente.CerradoPorElServidor;
+        MessageBox.Show(this, motivo + (puedeVolver ? "\n\nPuede volver a unirse con el mismo nombre." : string.Empty),
+            "Conexión perdida", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        VolverParaReconectar = puedeVolver;
         Close();
     }
+
+    /// <summary>
+    /// Indica si la ventana se cerró para volver al inicio y reconectarse.
+    /// </summary>
+    public bool VolverParaReconectar { get; private set; }
 
     private static string TextoDirecciones(int puerto)
     {

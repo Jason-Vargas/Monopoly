@@ -346,6 +346,43 @@ public class PruebasPartida : PartidaDePrueba
     }
 
     [Fact]
+    public void RetirarJugador_EnSuTurno_LiberaPropiedadesYPasaElTurno()
+    {
+        Crear(3, new[] { 1, 2, 3, 3 });
+        Ok(Juego.TirarDados(Ana));
+        Ok(Juego.NoComprar(Ana));
+        Ok(Juego.TerminarTurno(Ana));
+        Ok(Juego.TirarDados(Beto));
+        Ok(Juego.ComprarPropiedad(Beto));
+        int transacciones = Juego.Historial.Cantidad;
+
+        Rechazada(Juego.RetirarJugador(Carla, Beto), "Solo el organizador (Ana)");
+        Rechazada(Juego.RetirarJugador(Ana, Ana), "no puede retirarse a sí mismo");
+        Rechazada(Juego.RetirarJugador(Ana, 9), "No existe el jugador 9");
+        Ok(Juego.RetirarJugador(Ana, Beto));
+
+        Assert.False(J(Beto).Activo);
+        Assert.True(Juego.Tablero.BuscarPropiedad(6)!.EstaDisponible);
+        Assert.Equal(Carla, EnTurno());
+        Assert.Equal(FaseTurno.EsperandoDados, Estado().Fase);
+        Assert.Equal(transacciones, Juego.Historial.Cantidad);
+        Assert.Contains("Ana retiró a Beto de la partida.", Eventos());
+        Rechazada(Juego.RetirarJugador(Ana, Beto), "Beto ya no está en la partida");
+    }
+
+    [Fact]
+    public void RetirarJugador_SiQuedaUnoTerminaLaPartida()
+    {
+        Crear(2, new[] { 1, 2 });
+
+        Ok(Juego.RetirarJugador(Ana, Beto));
+
+        Assert.Equal(EstadoPartida.Finalizada, Juego.Estado);
+        Assert.Equal(Ana, Estado().IdGanador);
+        Rechazada(Juego.RetirarJugador(Ana, Beto), "no está en curso");
+    }
+
+    [Fact]
     public void ConsultarTransacciones_DevuelveLaTabla()
     {
         Crear(2, new[] { 1, 2 });

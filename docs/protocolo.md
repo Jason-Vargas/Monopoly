@@ -41,7 +41,8 @@ Comunicación por **sockets TCP** entre los clientes (jugadores) y el servidor (
 | `CONSULTAR_ESTADO` | — | `ESTADO` solo al solicitante | — |
 | `CONSULTAR_TRANSACCIONES\|filtro[\|valor]` | filtro: `TODAS`, `ANTIGUAS`, `RECIENTES`, `JUGADOR\|nombre`, `TIPO\|tipo` | `TRANSACCIONES` solo al solicitante | filtro desconocido, falta el valor, tipo desconocido |
 | `EXPORTAR_TRANSACCIONES` | — | se escribe `partidas/partida_AAAA-MM-DD_HH-mm-ss.txt` **en la computadora del servidor**; `EVENTO` con la ruta + `ESTADO` a todos | error de escritura |
-| `DESCONECTAR` | — | el servidor cierra la conexión; `EVENTO` a los demás | — |
+| `DESCONECTAR` | — | el servidor cierra la conexión; `EVENTO` + `ESTADO` a los demás | — |
+| `RETIRAR_JUGADOR\|idJugador` | id del jugador a retirar | `EVENTO` + `ESTADO` a todos (y `FIN` si queda uno solo) | no es el organizador, el jugador está conectado, no existe, ya fue eliminado, partida no en curso |
 
 Antes de `CONECTAR`, cualquier otra solicitud recibe `ERROR|Debe enviar CONECTAR|nombre antes de cualquier otra solicitud.` Un comando desconocido recibe `ERROR|Comando desconocido: X.`
 
@@ -60,10 +61,11 @@ Valores de `TIPO`: `CompraPropiedad`, `PagoAlquiler`, `PagoBanco`, `PagoEntreJug
 | `EVENTO\|texto` | una línea del registro de la partida | todos |
 | `TRANSACCIONES\|filtro\|N\|...` | resultado de una consulta (ver 4.2) | solicitante |
 | `FIN\|ganador\|resumen` | nombre del ganador; patrimonio de cada jugador y ruta del TXT exportado | todos |
+| `SERVIDOR_CERRADO\|motivo` | el servidor se va a cerrar (por ejemplo, `El organizador cerró la partida.`); inmediatamente después cierra la conexión | todos |
 
 ### 4.1 Campos de `ESTADO`
 
-Después de `ESTADO` vienen 18 campos fijos:
+Después de `ESTADO` vienen 19 campos fijos:
 
 | # | Campo | Ejemplo |
 |---|---|---|
@@ -85,13 +87,14 @@ Después de `ESTADO` vienen 18 campos fijos:
 | 15 | cantidad de eventos del registro | `31` |
 | 16 | cantidad de transacciones | `5` |
 | 17 | cantidad de jugadores N | `4` |
+| 18 | ids de los jugadores **desconectados** (sin conexión activa con el servidor) | `2` |
 
 Luego **N bloques de 10 campos**, uno por jugador en orden de ingreso: `id`, `nombre`, `color` (`Rojo`, `Azul`, `Verde`, `Amarillo`), `saldo`, `posición` (0 a 39), `activo` (1/0), `turnos por perder`, `patrimonio`, `propiedades` (casillas separadas por coma), `tarjeta física` (1/0).
 
 Ejemplo (2 jugadores; Beto debe alquiler a Ana):
 
 ```
-ESTADO|EnCurso|EsperandoPago|2|100|2|||2|4|Beto debe pagar $4 a Ana|1|2|2|1,2,3|3:1|14|1|2|1|Ana|Rojo|1440|3|1|0|1500|3|0|2|Beto|Azul|1500|3|1|0|1500||0
+ESTADO|EnCurso|EsperandoPago|2|100|2|||2|4|Beto debe pagar $4 a Ana|1|2|2|1,2,3|3:1|14|1|2||1|Ana|Rojo|1440|3|1|0|1500|3|0|2|Beto|Azul|1500|3|1|0|1500||0
 ```
 
 ### 4.2 Campos de `TRANSACCIONES`
@@ -103,13 +106,18 @@ CONSULTAR_TRANSACCIONES|JUGADOR|Ana
 TRANSACCIONES|JUGADOR Ana|2|1|2026-09-29T15:30:00|1|CompraPropiedad|Ana|BANCO|60|Compra de Avenida Báltica|2|2026-09-29T15:31:10|2|PagoAlquiler|Beto|Ana|4|Avenida Báltica
 ```
 
-## 5. Desconexiones
+## 5. Desconexiones y robustez
 
-- Si un cliente se desconecta (con `DESCONECTAR` o por caída de la red), el servidor **no se cae**: cierra esa conexión y avisa a los demás con `EVENTO|X se desconectó...`.
+- Si un cliente se desconecta (con `DESCONECTAR` o por caída de la red), el servidor **no se cae**: cierra esa conexión, avisa a los demás con `EVENTO|X se desconectó...` (indicando si era su turno) y envía un `ESTADO` cuyo campo 18 lo marca como desconectado.
+- Detección: al instante si la aplicación se cierra; en unos 20 s si se corta la red o se apaga la computadora (keepalive TCP: 10 s sin tráfico, 3 sondas cada 3 s), en ambos extremos.
 - El jugador **sigue en la partida**: no se elimina, conserva saldo y propiedades, y no se salta su turno (la partida lo espera).
 - Puede **reconectarse** enviando `CONECTAR` con el mismo nombre (sin distinguir mayúsculas) desde cualquier computadora: recupera su id con `BIENVENIDA`, los demás reciben `EVENTO|X se reconectó.` y todos un `ESTADO`.
 - Si ese nombre ya tiene una conexión activa, se responde `ERROR|X ya está conectado desde otra conexión.`
-- Si se cae el servidor, los clientes reciben el evento `Desconectado` y deben volver a conectarse cuando se reinicie (el estado de la partida no se conserva entre reinicios).
+- Si no vuelve, el organizador puede enviar `RETIRAR_JUGADOR|id`: el jugador queda eliminado sin pagar, sus propiedades se liberan y, si era su turno, pasa al siguiente. Solo lo puede pedir el organizador y solo sobre jugadores **desconectados** (errores: `Solo el organizador...`, `X está conectado...`, `No existe el jugador...`).
+- Si el servidor se detiene de forma ordenada (el organizador cierra la aplicación), envía `SERVIDOR_CERRADO|motivo` a todos y cierra; el cliente informa ese motivo en su evento `Desconectado`. Si el servidor se cae sin avisar, el motivo es "Se perdió la conexión con el servidor...". El estado de la partida no se conserva entre reinicios.
+- Solicitudes simultáneas: se procesan de a una (candado de procesamiento); solo prospera la del jugador en turno.
+- Protección del servidor: cada envío tiene un tiempo máximo de 5 s (un cliente que deja de leer no bloquea a los demás: se le corta la conexión), las líneas recibidas tienen un máximo de 8192 caracteres y un error inesperado al procesar una solicitud responde `ERROR|Error interno...` sin cortar la conexión.
+- El cliente espera como máximo 5 s para conectar (una IP inexistente no responde nunca).
 
 ## 6. Ejemplo de sesión
 

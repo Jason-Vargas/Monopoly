@@ -1,7 +1,9 @@
 using System;
 using System.IO;
 using System.Net.Sockets;
+using System.Runtime.ExceptionServices;
 using System.Threading;
+using System.Threading.Tasks;
 using Monopoly.Core.Estructuras;
 using Monopoly.Core.Modelo;
 
@@ -24,6 +26,7 @@ public sealed class Cliente : IDisposable
     private StreamWriter? _escritor;
     private Thread? _hiloLector;
     private int _desconexionNotificada;
+    private volatile string? _motivoCierre;
 
     /// <summary>
     /// Cualquier mensaje recibido (se dispara antes que el evento específico).
@@ -81,25 +84,66 @@ public sealed class Cliente : IDisposable
     public int? IdJugador { get; private set; }
 
     /// <summary>
+    /// Indica si la conexión terminó porque el servidor avisó que cerraba (<c>SERVIDOR_CERRADO</c>),
+    /// a diferencia de una caída de la red.
+    /// </summary>
+    public bool CerradoPorElServidor => _motivoCierre != null;
+
+    /// <summary>
     /// Nombre confirmado por el servidor tras la bienvenida, o <c>null</c>.
     /// </summary>
     public string? Nombre { get; private set; }
+
+    /// <summary>
+    /// Tiempo máximo predeterminado para establecer la conexión.
+    /// </summary>
+    public const int TiempoEsperaConexionMs = 5000;
 
     /// <summary>
     /// Abre la conexión TCP y arranca el hilo lector. Después hay que enviar <see cref="Unirse"/>.
     /// </summary>
     /// <param name="host">IP o nombre del servidor.</param>
     /// <param name="puerto">Puerto del servidor.</param>
-    /// <exception cref="SocketException">Si no se puede conectar.</exception>
-    public void Conectar(string host, int puerto)
+    /// <param name="tiempoEsperaMs">Tiempo máximo para conectar (una IP inexistente no responde nunca).</param>
+    /// <exception cref="SocketException">Si la conexión es rechazada o la dirección no existe.</exception>
+    /// <exception cref="TimeoutException">Si el servidor no responde a tiempo.</exception>
+    /// <remarks>Use <see cref="DescribirErrorConexion"/> para mostrar un mensaje claro al usuario.</remarks>
+    public void Conectar(string host, int puerto, int tiempoEsperaMs = TiempoEsperaConexionMs)
     {
         if (Conectado)
         {
             throw new InvalidOperationException("El cliente ya está conectado.");
         }
 
-        _tcp = new TcpClient { NoDelay = true };
-        _tcp.Connect(host, puerto);
+        TcpClient tcp = new TcpClient();
+        try
+        {
+            Task intento = tcp.ConnectAsync(host, puerto);
+            bool termino;
+            try
+            {
+                termino = intento.Wait(tiempoEsperaMs);
+            }
+            catch (AggregateException ex) when (ex.InnerException != null)
+            {
+                ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                throw;
+            }
+
+            if (!termino)
+            {
+                throw new TimeoutException($"{host}:{puerto} no respondió en {tiempoEsperaMs / 1000} segundos.");
+            }
+        }
+        catch
+        {
+            tcp.Dispose();
+            throw;
+        }
+
+        ConfiguracionSocket.Aplicar(tcp);
+        _tcp = tcp;
+        _motivoCierre = null;
         NetworkStream flujo = _tcp.GetStream();
         _lector = new StreamReader(flujo, Protocolo.Codificacion);
         _escritor = new StreamWriter(flujo, Protocolo.Codificacion) { NewLine = "\n", AutoFlush = true };
@@ -107,6 +151,55 @@ public sealed class Cliente : IDisposable
         Conectado = true;
         _hiloLector = new Thread(LeerMensajes) { IsBackground = true, Name = "Cliente-Lector" };
         _hiloLector.Start();
+    }
+
+    /// <summary>
+    /// Traduce un error al conectar en un mensaje claro para el usuario (IP incorrecta, servidor que no
+    /// responde, puerto cerrado...).
+    /// </summary>
+    /// <param name="error">Excepción lanzada por <see cref="Conectar"/>.</param>
+    /// <param name="host">IP o nombre al que se intentó conectar.</param>
+    /// <param name="puerto">Puerto usado.</param>
+    /// <returns>El mensaje.</returns>
+    public static string DescribirErrorConexion(Exception error, string host, int puerto)
+    {
+        ArgumentNullException.ThrowIfNull(error);
+        string sinRespuesta = $"No hubo respuesta de {host}:{puerto}. Revise que la IP sea la de la computadora del organizador, " +
+                              $"que ambas estén conectadas a la misma red y que el Firewall de Windows del organizador permita el puerto {puerto}.";
+        if (error is TimeoutException)
+        {
+            return sinRespuesta;
+        }
+
+        if (error is ArgumentException)
+        {
+            return $"La dirección '{host}' no es válida. Escriba una IP como 192.168.1.20.";
+        }
+
+        if (error is SocketException socket)
+        {
+            switch (socket.SocketErrorCode)
+            {
+                case SocketError.ConnectionRefused:
+                    return $"No hay ninguna partida abierta en {host}:{puerto} (conexión rechazada). " +
+                           "Verifique que el organizador ya creó la partida y que el puerto sea el mismo.";
+                case SocketError.HostNotFound:
+                case SocketError.NoData:
+                case SocketError.TryAgain:
+                    return $"No se encontró la computadora '{host}'. Revise que la IP esté bien escrita (por ejemplo, 192.168.1.20).";
+                case SocketError.TimedOut:
+                case SocketError.HostUnreachable:
+                case SocketError.NetworkUnreachable:
+                case SocketError.HostDown:
+                    return sinRespuesta;
+                case SocketError.AddressNotAvailable:
+                    return $"La dirección {host} no es válida para conectarse.";
+            }
+
+            return $"No se pudo conectar a {host}:{puerto}: {socket.Message}";
+        }
+
+        return $"No se pudo conectar a {host}:{puerto}: {error.Message}";
     }
 
     /// <summary>Envía <c>CONECTAR|nombre</c>.</summary>
@@ -136,6 +229,11 @@ public sealed class Cliente : IDisposable
 
     /// <summary>Envía <c>EXPORTAR_TRANSACCIONES</c>.</summary>
     public void ExportarTransacciones() => Enviar(Protocolo.ExportarTransacciones);
+
+    /// <summary>Envía <c>RETIRAR_JUGADOR|id</c> (solo el organizador, para jugadores desconectados).</summary>
+    /// <param name="idJugador">Jugador a retirar.</param>
+    public void RetirarJugador(int idJugador) =>
+        Enviar(Protocolo.RetirarJugador, idJugador.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
     /// <summary>
     /// Envía <c>CONSULTAR_TRANSACCIONES|filtro[|valor]</c>.
@@ -241,10 +339,10 @@ public sealed class Cliente : IDisposable
         }
         catch (Exception ex) when (ex is IOException || ex is ObjectDisposedException || ex is SocketException)
         {
-            motivo = "Se perdió la conexión con el servidor.";
+            motivo = "Se perdió la conexión con el servidor (¿se cayó la red o se cerró la computadora del organizador?).";
         }
 
-        Cerrar(motivo);
+        Cerrar(_motivoCierre ?? motivo);
     }
 
     private void Despachar(string linea)
@@ -277,6 +375,10 @@ public sealed class Cliente : IDisposable
                     break;
                 case Protocolo.Fin:
                     FinRecibido?.Invoke(mensaje.Campo(0), mensaje.Campo(1));
+                    break;
+                case Protocolo.ServidorCerrado:
+                    // El servidor cerrará la conexión enseguida: se usa este motivo al notificar la desconexión.
+                    _motivoCierre = mensaje.CantidadCampos > 0 ? mensaje.Campo(0) : "El servidor cerró la partida.";
                     break;
             }
         }
