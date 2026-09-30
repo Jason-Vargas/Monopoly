@@ -71,7 +71,7 @@ public class PruebasProtocolo
         EstadoJugador beto = new EstadoJugador(2, "Beto", ColorFicha.Azul, 0, 10, false, 1, 0, new int[0], false);
         InstantaneaJuego instantanea = new InstantaneaJuego(EstadoPartida.EnCurso, FaseTurno.EsperandoPago, 7, 100, 1, null, null, 1,
             "Ana debe pagar $200 al banco", 200, new TiradaDados(1, 2), new[] { ana, beto }, 42, 5);
-        EstadoRed original = new EstadoRed(instantanea, 1, new[] { 1, 2, 3 });
+        EstadoRed original = new EstadoRed(instantanea, 1, new[] { 1, 2, 3 }, new[] { 2 });
 
         string linea = SerializadorEstado.Codificar(original);
         EstadoRed copia = SerializadorEstado.Decodificar(Protocolo.Decodificar(linea));
@@ -85,6 +85,9 @@ public class PruebasProtocolo
         Assert.Equal((42, 5), (i.CantidadEventos, i.CantidadTransacciones));
         Assert.Equal(new[] { 1, 2, 3 }, copia.CasillasRecorridas);
         Assert.Equal(1, copia.IdJugadorUltimoMovimiento);
+        Assert.Equal(new[] { 2 }, copia.IdsDesconectados);
+        Assert.True(copia.EstaConectado(1));
+        Assert.False(copia.EstaConectado(2));
         Assert.Equal(1, copia.PropietarioDe(3));
         Assert.Equal(1, copia.PropietarioDe(5));
         Assert.Null(copia.PropietarioDe(1));

@@ -496,3 +496,6 @@ $RECYCLE.BIN/
 Thumbs.db
 # Partidas y reportes generados
 partidas/
+
+# Ejecutable publicado (publicar.ps1)
+publicar/

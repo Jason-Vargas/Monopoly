@@ -16,8 +16,9 @@ public sealed class EstadoRed
     /// <param name="instantanea">Instantánea del juego.</param>
     /// <param name="idJugadorUltimoMovimiento">Jugador que se movió por última vez, o <c>null</c>.</param>
     /// <param name="casillasRecorridas">Casillas recorridas en ese movimiento, en orden.</param>
-    public EstadoRed(InstantaneaJuego instantanea, int? idJugadorUltimoMovimiento, int[] casillasRecorridas)
-        : this(instantanea, idJugadorUltimoMovimiento, casillasRecorridas, CalcularPropietarios(instantanea))
+    /// <param name="idsDesconectados">Jugadores sin conexión activa con el servidor (opcional).</param>
+    public EstadoRed(InstantaneaJuego instantanea, int? idJugadorUltimoMovimiento, int[] casillasRecorridas, int[]? idsDesconectados = null)
+        : this(instantanea, idJugadorUltimoMovimiento, casillasRecorridas, CalcularPropietarios(instantanea), idsDesconectados)
     {
     }
 
@@ -28,13 +29,38 @@ public sealed class EstadoRed
     /// <param name="idJugadorUltimoMovimiento">Jugador que se movió por última vez, o <c>null</c>.</param>
     /// <param name="casillasRecorridas">Casillas recorridas en ese movimiento, en orden.</param>
     /// <param name="propietarios">Id del dueño por índice de casilla (0 = sin dueño).</param>
-    public EstadoRed(InstantaneaJuego instantanea, int? idJugadorUltimoMovimiento, int[] casillasRecorridas, int[] propietarios)
+    /// <param name="idsDesconectados">Jugadores sin conexión activa con el servidor.</param>
+    public EstadoRed(InstantaneaJuego instantanea, int? idJugadorUltimoMovimiento, int[] casillasRecorridas, int[] propietarios, int[]? idsDesconectados)
     {
         ArgumentNullException.ThrowIfNull(instantanea);
         Instantanea = instantanea;
         IdJugadorUltimoMovimiento = idJugadorUltimoMovimiento;
         CasillasRecorridas = casillasRecorridas ?? new int[0];
         Propietarios = propietarios ?? new int[Tablero.CantidadCasillas];
+        IdsDesconectados = idsDesconectados ?? new int[0];
+    }
+
+    /// <summary>
+    /// Jugadores registrados que no tienen una conexión activa con el servidor.
+    /// </summary>
+    public int[] IdsDesconectados { get; }
+
+    /// <summary>
+    /// Indica si el jugador tiene una conexión activa con el servidor.
+    /// </summary>
+    /// <param name="idJugador">Id del jugador.</param>
+    /// <returns><c>false</c> si está desconectado.</returns>
+    public bool EstaConectado(int idJugador)
+    {
+        foreach (int id in IdsDesconectados)
+        {
+            if (id == idJugador)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>

@@ -29,7 +29,56 @@ internal sealed class ClientePrueba : IDisposable
                 Monitor.PulseAll(_candado);
             }
         };
+        Cliente.Desconectado += motivo =>
+        {
+            lock (_candado)
+            {
+                MotivoDesconexion = motivo;
+                Monitor.PulseAll(_candado);
+            }
+        };
         Cliente.Conectar("127.0.0.1", puerto);
+    }
+
+    /// <summary>
+    /// Motivo recibido en el evento Desconectado, o <c>null</c> si sigue conectado.
+    /// </summary>
+    public string? MotivoDesconexion { get; private set; }
+
+    /// <summary>
+    /// Cuenta los mensajes recibidos (desde el inicio) con ese comando.
+    /// </summary>
+    public int Contar(string comando)
+    {
+        lock (_candado)
+        {
+            int cantidad = 0;
+            _recibidos.Recorrer(m => cantidad += m.Comando == comando ? 1 : 0);
+            return cantidad;
+        }
+    }
+
+    /// <summary>
+    /// Espera a que se dispare el evento Desconectado y devuelve su motivo.
+    /// </summary>
+    public string EsperarDesconexion()
+    {
+        DateTime limite = DateTime.UtcNow.AddMilliseconds(EsperaMaximaMs);
+        lock (_candado)
+        {
+            while (MotivoDesconexion == null)
+            {
+                int restante = (int)(limite - DateTime.UtcNow).TotalMilliseconds;
+                if (restante <= 0)
+                {
+                    throw new Xunit.Sdk.XunitException($"{Nombre}: no se notificó la desconexión.");
+                }
+
+                Monitor.Wait(_candado, restante);
+            }
+
+            return MotivoDesconexion;
+        }
     }
 
     public Cliente Cliente { get; } = new Cliente();

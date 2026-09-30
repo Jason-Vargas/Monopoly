@@ -84,6 +84,14 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
 - `Cliente`: `TcpClient` + hilo lector; notifica con eventos C# (`BienvenidaRecibida`, `ErrorRecibido`, `EstadoActualizado`, `DadosRecibidos`, `EventoRecibido`, `TransaccionesRecibidas`, `FinRecibido`, `Desconectado`, `MensajeRecibido`). **Se disparan en el hilo lector**: la interfaz debe usar `BeginInvoke`.
 - `PAGAR_CON_TARJETA` = modo simulado (UID del propio jugador). El lector RFID real se integrará en la etapa de hardware.
 - `src/Monopoly.ClienteConsola` es una herramienta **temporal** de depuración (`servidor [puerto]` / `cliente [host] [puerto] [nombre]`).
+- Robustez (ver `docs/protocolo.md` §5 y `docs/prueba-en-red.md`): `ConfiguracionSocket` aplica keepalive TCP (~20 s para detectar redes caídas) y tiempo máximo de envío de 5 s; `ConexionCliente.LeerLinea` limita las líneas a 8192 caracteres; los errores inesperados al procesar responden `ERROR` sin cortar la conexión.
+- `ESTADO` incluye (campo 18) los jugadores **desconectados**; `RETIRAR_JUGADOR|id` (solo el organizador, solo desconectados) llama a `Juego.RetirarJugador`; `Servidor.Detener(motivo)` envía `SERVIDOR_CERRADO|motivo` antes de cerrar y el cliente lo usa como motivo de `Desconectado` (`Cliente.CerradoPorElServidor`).
+- `Cliente.Conectar` espera como máximo 5 s y `Cliente.DescribirErrorConexion` traduce los errores (rechazada, sin respuesta, IP inválida) a mensajes claros.
+
+## Publicación y prueba en red
+
+- `publicar.ps1` genera `publicar\win-x64\Monopoly.App.exe`: un único .exe autocontenido (win-x64, .NET 8 incluido, sin recorte porque WinForms no lo admite). La carpeta `publicar/` está en `.gitignore`.
+- Firewall, IP, orden de la prueba y solución de problemas: `docs/prueba-en-red.md`.
 
 ## Diseño de la interfaz (`Monopoly.App`, Windows Forms)
 
@@ -94,6 +102,8 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
 - Animación: al recibir `DADOS` se marca que el siguiente `ESTADO` se anima; un `Timer` de WinForms mueve la ficha por `CasillasRecorridas` (hacia adelante o atrás) y al final se ajusta a las posiciones del estado.
 - Botones habilitados según el último `ESTADO` (turno propio + fase; "Pagar con tarjeta" si soy el deudor). El servidor valida igual.
 - Argumentos de prueba: `--crear Nombre [puerto] [maxTurnos]` y `--unirse Nombre [ip] [puerto]`.
+- Errores al conectar: se muestran en la etiqueta y en un diálogo (`FormularioInicio.MostrarError`); se valida la IP antes de conectar y se espera la BIENVENIDA como máximo 8 s.
+- Desconexiones: las tarjetas muestran "DESCONECTADO"; el organizador ve el botón "Retirar jugadores desconectados..."; un jugador que pierde la conexión puede volver al inicio ya relleno (`VolverParaReconectar` + `ArgumentosInicio.ParaReconectar`), salvo que el servidor haya cerrado.
 - `Paleta`: verde del tablero, colores de grupo y de ficha. `Casilla.Detalle` (virtual) da el texto secundario de cada casilla.
 
 ## Resumen de requisitos del enunciado

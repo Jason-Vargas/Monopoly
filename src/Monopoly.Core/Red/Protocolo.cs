@@ -61,6 +61,9 @@ public static class Protocolo
     /// <summary>Cliente → servidor: <c>DESCONECTAR</c>.</summary>
     public const string Desconectar = "DESCONECTAR";
 
+    /// <summary>Cliente → servidor: <c>RETIRAR_JUGADOR|idJugador</c> (solo el organizador, solo jugadores desconectados).</summary>
+    public const string RetirarJugador = "RETIRAR_JUGADOR";
+
     // Mensajes del servidor.
 
     /// <summary>Servidor → cliente: <c>BIENVENIDA|idJugador|nombre</c>.</summary>
@@ -83,6 +86,9 @@ public static class Protocolo
 
     /// <summary>Servidor → clientes: <c>FIN|ganador|resumen</c>.</summary>
     public const string Fin = "FIN";
+
+    /// <summary>Servidor → clientes: <c>SERVIDOR_CERRADO|motivo</c>, justo antes de cerrar todas las conexiones.</summary>
+    public const string ServidorCerrado = "SERVIDOR_CERRADO";
 
     /// <summary>
     /// Escapa un campo para que no contenga separadores ni saltos de línea sin escapar.

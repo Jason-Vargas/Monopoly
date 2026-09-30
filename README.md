@@ -30,6 +30,14 @@ dotnet test Monopoly.sln
 dotnet run --project src/Monopoly.App
 ```
 
+## Ejecutable para otras computadoras
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\publicar.ps1
+```
+
+Genera `publicar\win-x64\Monopoly.App.exe`, un único archivo que incluye .NET (no hay que instalar nada en la otra computadora). Para jugar en red (firewall, IP, solución de problemas) vea [`docs/prueba-en-red.md`](docs/prueba-en-red.md).
+
 ## Jugar con la interfaz gráfica
 
 1. El organizador abre la aplicación, escribe su nombre y pulsa **Crear partida**: su equipo aloja al banco y la sala de espera muestra la IP y el puerto que debe compartir.

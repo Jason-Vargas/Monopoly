@@ -129,20 +129,25 @@ public sealed class Servidor : IDisposable
     }
 
     /// <summary>
-    /// Deja de aceptar clientes y cierra todas las conexiones.
+    /// Avisa a todos los clientes con <c>SERVIDOR_CERRADO</c>, deja de aceptar clientes y cierra todas las conexiones.
     /// </summary>
-    public void Detener()
+    /// <param name="motivo">Motivo que verán los jugadores.</param>
+    public void Detener(string motivo = "El organizador cerró la partida.")
     {
         if (!_activo)
         {
             return;
         }
 
-        _activo = false;
-        _escucha.Stop();
-        foreach (ConexionCliente conexion in CopiarClientes())
+        lock (_candadoProcesamiento)
         {
-            conexion.Cerrar();
+            _activo = false;
+            _escucha.Stop();
+            foreach (ConexionCliente conexion in CopiarClientes())
+            {
+                conexion.Enviar(Protocolo.Codificar(Protocolo.ServidorCerrado, motivo));
+                conexion.Cerrar();
+            }
         }
 
         Registrar("Servidor detenido.");
@@ -210,7 +215,20 @@ public sealed class Servidor : IDisposable
                     continue;
                 }
 
-                if (!Procesar(conexion, mensaje))
+                bool continuar;
+                try
+                {
+                    continuar = Procesar(conexion, mensaje);
+                }
+                catch (Exception ex) when (!(ex is IOException || ex is ObjectDisposedException || ex is SocketException))
+                {
+                    // Un error inesperado al procesar una solicitud no debe tumbar la conexión ni el servidor.
+                    Registrar($"Error al procesar {mensaje.Comando} de {conexion.Direccion}: {ex}");
+                    conexion.Enviar(Protocolo.Codificar(Protocolo.Error, $"Error interno del servidor al procesar {mensaje.Comando}."));
+                    continuar = true;
+                }
+
+                if (!continuar)
                 {
                     break;
                 }
@@ -284,6 +302,9 @@ public sealed class Servidor : IDisposable
                 case Protocolo.ExportarTransacciones:
                     Responder(conexion, _juego.ExportarHistorial());
                     break;
+                case Protocolo.RetirarJugador:
+                    ProcesarRetirarJugador(conexion, id, mensaje);
+                    break;
                 default:
                     ResponderError(conexion, $"Comando desconocido: {mensaje.Comando}.");
                     break;
@@ -291,6 +312,33 @@ public sealed class Servidor : IDisposable
 
             return true;
         }
+    }
+
+    /// <summary>
+    /// <c>RETIRAR_JUGADOR|id</c>: el organizador retira a un jugador que está desconectado (para que la
+    /// partida no quede esperando indefinidamente). A un jugador conectado no se le puede retirar.
+    /// </summary>
+    private void ProcesarRetirarJugador(ConexionCliente conexion, int idSolicitante, Mensaje mensaje)
+    {
+        int idRetirado;
+        try
+        {
+            idRetirado = mensaje.Entero(0);
+        }
+        catch (FormatException)
+        {
+            ResponderError(conexion, $"Uso: {Protocolo.RetirarJugador}|idJugador");
+            return;
+        }
+
+        if (EstaConectado(idRetirado))
+        {
+            string nombre = _juego.ObtenerJugador(idRetirado)?.Nombre ?? $"El jugador {idRetirado}";
+            ResponderError(conexion, $"{nombre} está conectado; solo se puede retirar a jugadores desconectados.");
+            return;
+        }
+
+        Responder(conexion, _juego.RetirarJugador(idSolicitante, idRetirado));
     }
 
     private void ProcesarConectar(ConexionCliente conexion, Mensaje mensaje)
@@ -445,7 +493,7 @@ public sealed class Servidor : IDisposable
         }
 
         InstantaneaJuego instantanea = _juego.ObtenerInstantanea();
-        EnviarATodos(SerializadorEstado.Codificar(new EstadoRed(instantanea, _idUltimoMovimiento, _ultimasRecorridas)));
+        EnviarATodos(SerializadorEstado.Codificar(CrearEstado(instantanea)));
 
         if (!_finEnviado && instantanea.Estado == EstadoPartida.Finalizada)
         {
@@ -456,7 +504,27 @@ public sealed class Servidor : IDisposable
 
     private string CodificarEstado()
     {
-        return SerializadorEstado.Codificar(new EstadoRed(_juego.ObtenerInstantanea(), _idUltimoMovimiento, _ultimasRecorridas));
+        return SerializadorEstado.Codificar(CrearEstado(_juego.ObtenerInstantanea()));
+    }
+
+    /// <summary>
+    /// Arma el estado de red: la instantánea más el último recorrido y los jugadores sin conexión.
+    /// </summary>
+    private EstadoRed CrearEstado(InstantaneaJuego instantanea)
+    {
+        ListaSimple<int> desconectados = new ListaSimple<int>();
+        foreach (EstadoJugador jugador in instantanea.Jugadores)
+        {
+            if (!EstaConectado(jugador.Id))
+            {
+                desconectados.AgregarAlFinal(jugador.Id);
+            }
+        }
+
+        int[] ids = new int[desconectados.Cantidad];
+        int i = 0;
+        desconectados.Recorrer(id => ids[i++] = id);
+        return new EstadoRed(instantanea, _idUltimoMovimiento, _ultimasRecorridas, ids);
     }
 
     private string CodificarFin(InstantaneaJuego instantanea)
@@ -517,10 +585,23 @@ public sealed class Servidor : IDisposable
 
         lock (_candadoProcesamiento)
         {
-            string nombre = _juego.ObtenerJugador(conexion.IdJugador.Value)?.Nombre ?? "Un jugador";
+            if (!_activo)
+            {
+                return;
+            }
+
+            int id = conexion.IdJugador.Value;
+            string nombre = _juego.ObtenerJugador(id)?.Nombre ?? "Un jugador";
+            InstantaneaJuego instantanea = _juego.ObtenerInstantanea();
+            string aviso = $"{nombre} se desconectó. Sigue en la partida y puede reconectarse con el mismo nombre.";
+            if (instantanea.Estado == EstadoPartida.EnCurso && instantanea.IdJugadorEnTurno == id)
+            {
+                aviso += " Es su turno: la partida lo espera, o el organizador puede retirarlo.";
+            }
+
             Registrar($"{nombre} se desconectó ({conexion.Direccion}).");
-            EnviarATodos(Protocolo.Codificar(Protocolo.Evento,
-                $"{nombre} se desconectó. Sigue en la partida y puede reconectarse con el mismo nombre."));
+            EnviarATodos(Protocolo.Codificar(Protocolo.Evento, aviso));
+            EnviarATodos(SerializadorEstado.Codificar(CrearEstado(instantanea)));
         }
     }
 

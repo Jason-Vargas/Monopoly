@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Net.Sockets;
+using System.Text;
 
 namespace Monopoly.Core.Red;
 
@@ -10,6 +11,12 @@ namespace Monopoly.Core.Red;
 /// </summary>
 internal sealed class ConexionCliente
 {
+    /// <summary>
+    /// Longitud máxima de una línea recibida; un cliente que envíe más sin salto de línea se desconecta
+    /// (evita que un cliente defectuoso o malicioso agote la memoria del servidor).
+    /// </summary>
+    public const int LongitudMaximaLinea = 8192;
+
     private readonly TcpClient _tcp;
     private readonly StreamReader _lector;
     private readonly StreamWriter _escritor;
@@ -23,7 +30,7 @@ internal sealed class ConexionCliente
     public ConexionCliente(TcpClient tcp)
     {
         _tcp = tcp;
-        _tcp.NoDelay = true;
+        ConfiguracionSocket.Aplicar(tcp);
         NetworkStream flujo = tcp.GetStream();
         _lector = new StreamReader(flujo, Protocolo.Codificacion);
         _escritor = new StreamWriter(flujo, Protocolo.Codificacion) { NewLine = "\n", AutoFlush = true };
@@ -45,9 +52,30 @@ internal sealed class ConexionCliente
     /// Lee la siguiente línea (bloquea hasta recibirla).
     /// </summary>
     /// <returns>La línea, o <c>null</c> si el cliente cerró la conexión.</returns>
+    /// <exception cref="IOException">Si la línea supera <see cref="LongitudMaximaLinea"/>.</exception>
     public string? LeerLinea()
     {
-        return _lector.ReadLine();
+        StringBuilder linea = new StringBuilder();
+        while (true)
+        {
+            int caracter = _lector.Read();
+            if (caracter < 0)
+            {
+                return linea.Length > 0 ? linea.ToString() : null;
+            }
+
+            if (caracter == '\n')
+            {
+                return linea.ToString().TrimEnd('\r');
+            }
+
+            if (linea.Length >= LongitudMaximaLinea)
+            {
+                throw new IOException($"Línea de más de {LongitudMaximaLinea} caracteres.");
+            }
+
+            linea.Append((char)caracter);
+        }
     }
 
     /// <summary>

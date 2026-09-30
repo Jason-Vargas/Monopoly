@@ -102,11 +102,14 @@ internal sealed class PanelJugadores : Control
                 g.DrawString(Formato.Dinero(j.Saldo), negrita, colorSaldo, new RectangleF(tarjeta.X, tarjeta.Y + 4, tarjeta.Width - 10, 28), derecha);
             }
 
+            bool conectado = _estado.EstaConectado(j.Id);
             string situacion = !j.Activo ? "ELIMINADO"
+                : !conectado ? "DESCONECTADO"
                 : j.TurnosPorPerder > 0 ? $"Activo · pierde {j.TurnosPorPerder} turno(s)"
                 : "Activo";
             string linea2 = $"{situacion} · en {Paleta.NombreCorto(_tablero.ObtenerCasilla(j.Posicion).Nombre)}";
-            using (SolidBrush gris = new SolidBrush(j.Activo ? Color.FromArgb(60, 60, 60) : Color.FromArgb(150, 20, 20)))
+            Color colorSituacion = !j.Activo ? Color.FromArgb(150, 20, 20) : !conectado ? Color.FromArgb(200, 100, 0) : Color.FromArgb(60, 60, 60);
+            using (SolidBrush gris = new SolidBrush(colorSituacion))
             {
                 g.DrawString(linea2, normal, gris, tarjeta.X + 44, tarjeta.Y + 27);
             }

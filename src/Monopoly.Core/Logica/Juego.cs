@@ -229,7 +229,8 @@ public class Juego
         {
             if (_estado != EstadoPartida.EsperandoJugadores)
             {
-                return ResultadoAccion.Fallido("La partida ya comenzó; no se pueden unir más jugadores.");
+                return ResultadoAccion.Fallido("La partida ya comenzó; no se pueden unir jugadores nuevos. " +
+                    "Si usted ya estaba en la partida, escriba exactamente el mismo nombre para reconectarse.");
             }
 
             if (string.IsNullOrWhiteSpace(nombre))
@@ -240,7 +241,7 @@ public class Juego
             string nombreLimpio = nombre.Trim();
             if (_jugadores.Cantidad >= MaximoJugadores)
             {
-                return ResultadoAccion.Fallido($"La partida ya tiene el máximo de {MaximoJugadores} jugadores.");
+                return ResultadoAccion.Fallido($"La partida está llena: ya tiene el máximo de {MaximoJugadores} jugadores.");
             }
 
             if (string.Equals(nombreLimpio, Transaccion.Banco, StringComparison.OrdinalIgnoreCase))
@@ -250,7 +251,7 @@ public class Juego
 
             if (_jugadores.Buscar(j => string.Equals(j.Nombre, nombreLimpio, StringComparison.OrdinalIgnoreCase)) != null)
             {
-                return ResultadoAccion.Fallido($"Ya existe un jugador llamado {nombreLimpio}.");
+                return ResultadoAccion.Fallido($"Ya existe un jugador llamado {nombreLimpio}; elija otro nombre.");
             }
 
             int id = _siguienteId++;
@@ -541,6 +542,53 @@ public class Juego
             string mensaje = _estado == EstadoPartida.Finalizada
                 ? $"La partida terminó. Ganador: {_ganador!.Nombre}."
                 : $"Turno {_numeroTurno}: le toca a {_turnos.Frente().Nombre}.";
+            return ResultadoAccion.Correcto(mensaje);
+        }
+    }
+
+    /// <summary>
+    /// Retira de la partida a un jugador (por ejemplo, porque se desconectó y no vuelve): queda eliminado
+    /// sin pagar nada, sus propiedades vuelven a estar libres y sale de la cola de turnos; si era su turno,
+    /// pasa al siguiente. Solo puede hacerlo el organizador, y no puede retirarse a sí mismo.
+    /// </summary>
+    /// <param name="idSolicitante">Jugador que lo solicita (debe ser el organizador).</param>
+    /// <param name="idRetirado">Jugador a retirar.</param>
+    /// <returns>El resultado.</returns>
+    public ResultadoAccion RetirarJugador(int idSolicitante, int idRetirado)
+    {
+        lock (_candado)
+        {
+            if (_estado != EstadoPartida.EnCurso)
+            {
+                return ResultadoAccion.Fallido("La partida no está en curso.");
+            }
+
+            Jugador? solicitante = BuscarJugador(idSolicitante);
+            Jugador organizador = _jugadores.Obtener(0);
+            if (solicitante != organizador)
+            {
+                return ResultadoAccion.Fallido($"Solo el organizador ({organizador.Nombre}) puede retirar jugadores.");
+            }
+
+            Jugador? retirado = BuscarJugador(idRetirado);
+            if (retirado == null)
+            {
+                return ResultadoAccion.Fallido($"No existe el jugador {idRetirado}.");
+            }
+
+            if (retirado == organizador)
+            {
+                return ResultadoAccion.Fallido("El organizador no puede retirarse a sí mismo.");
+            }
+
+            if (!retirado.Activo)
+            {
+                return ResultadoAccion.Fallido($"{retirado.Nombre} ya no está en la partida.");
+            }
+
+            string mensaje = $"{organizador.Nombre} retiró a {retirado.Nombre} de la partida.";
+            RegistrarEvento(mensaje);
+            EliminarJugador(retirado);
             return ResultadoAccion.Correcto(mensaje);
         }
     }
