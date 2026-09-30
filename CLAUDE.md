@@ -11,13 +11,14 @@ Proyecto 1 de Algoritmos y Estructuras de Datos 1 (TEC, II Semestre 2026). El en
     - `Monopoly.Core.Modelo` — entidades: Jugador, Casilla y derivadas, CartaEvento, Transaccion, Dado, Tablero.
     - `Monopoly.Core.Logica` — Juego, Banco, turnos, validaciones, exportación TXT.
     - `Monopoly.Core.Red` — Servidor, Cliente y protocolo TCP.
-    - `Monopoly.Core.Hardware` — dado electrónico y lector RFID (Arduino), con implementación simulada.
+    - `Monopoly.Core.Hardware` — dado electrónico y lector RFID (Raspberry Pi Pico W por USB serial), con implementación simulada.
   - `src/Monopoly.App` — Windows Forms (referencia a Core).
   - `tests/Monopoly.Tests` — xUnit (referencia a Core).
-- **Sin paquetes NuGet externos**, salvo xUnit (y su SDK/runner de pruebas) y, más adelante, `System.IO.Ports` para el hardware.
+- **Sin paquetes NuGet externos**, salvo xUnit (y su SDK/runner de pruebas) y, más adelante, `System.IO.Ports` para el puerto serie USB de la Pico W.
 - Configuración común en `Directory.Build.props`: `Nullable` habilitado, `ImplicitUsings` **deshabilitado** (los usings implícitos traen `System.Linq` y `System.Collections.Generic`), documentación XML generada.
 - **Tema**: Monopoly clásico (edición Atlantic City) con nombres de casillas en español y estética clásica. **No** copiar el logotipo ni la mascota oficial.
 - **Hardware al final**: hasta entonces todo debe funcionar en **modo simulado** (dados aleatorios, identificación de jugador sin tarjeta). El hardware se abstrae detrás de interfaces para poder cambiar simulado ↔ real.
+- **Hardware: Raspberry Pi Pico W con MicroPython (ya NO Arduino)**, conectada por **USB serial** a la computadora del organizador, que aloja al banco. Lleva lector RFID RC522, 2 displays de 7 segmentos (dado de 2 dígitos), un botón y el LED integrado. Detalles en `hardware/README.md`.
 - Los reportes y partidas generados se guardan en `partidas/` (ignorada por git).
 
 ## ⛔ Prohibición de colecciones y LINQ
@@ -88,6 +89,17 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
 - `ESTADO` incluye (campo 18) los jugadores **desconectados**; `RETIRAR_JUGADOR|id` (solo el organizador, solo desconectados) llama a `Juego.RetirarJugador`; `Servidor.Detener(motivo)` envía `SERVIDOR_CERRADO|motivo` antes de cerrar y el cliente lo usa como motivo de `Desconectado` (`Cliente.CerradoPorElServidor`).
 - `Cliente.Conectar` espera como máximo 5 s y `Cliente.DescribirErrorConexion` traduce los errores (rechazada, sin respuesta, IP inválida) a mensajes claros.
 
+## Módulo electrónico (`hardware/`, Raspberry Pi Pico W + MicroPython)
+
+- Archivos: `hardware/pico/main.py` (firmware), `hardware/pico/mfrc522.py` (driver propio mínimo, MIT, solo lee el UID de 4 o 7 bytes), `hardware/pico/prueba_uid.py` (anotar UIDs), `hardware/README.md` (materiales, conexiones, instalación, pruebas, problemas). La prohibición de colecciones aplica al C#; el MicroPython es independiente.
+- Conexiones: RC522 por SPI0 (SCK GP18, MOSI GP19, MISO GP16, SDA/CS GP17, RST GP20, 3V3(OUT)); display 1 a–g en GP2–GP8, display 2 a–g en GP9–GP15, directos con 470 Ω por segmento (≈ 3 mA; peor caso 42 mA < 50 mA totales); botón en GP21 a GND con pull-up interno; LED `Pin("LED")`. `CATODO_COMUN` en `main.py` elige cátodo o ánodo común.
+- **Los dados los genera el servidor** (estado oficial en el banco): la Pico envía `BOTON` y solo muestra lo que recibe.
+- Protocolo serie (líneas de texto; la Pico termina con `\r\n`):
+  - Pico → PC: `LISTO` (al arrancar), `BOTON`, `RFID:<UID hex mayúsculas>` (una misma tarjeta no se repite mientras está apoyada ni hasta 2 s después de retirarla), `PONG`, `ERROR:<detalle>`.
+  - PC → Pico: `DADOS:d1,d2` (1 a 6, con animación "rodando"), `LIMPIAR`, `PING`.
+  - Al abrir el puerto, la PC debe enviar `PING` y esperar `PONG` (el `LISTO` pudo salir antes). No enviar nunca Ctrl+C (0x03).
+- Integración pendiente en C# (`Monopoly.Core.Hardware`, en el organizador): `BOTON` → `TirarDados` del jugador en turno; `RFID:uid` → `IdentificarTarjeta(uid)` (y `VincularTarjeta` para registrar tarjetas); tras cada tirada, enviar `DADOS:d1,d2` a la Pico. El modo simulado debe seguir funcionando sin la placa.
+
 ## Publicación y prueba en red
 
 - `publicar.ps1` genera `publicar\win-x64\Monopoly.App.exe`: un único .exe autocontenido (win-x64, .NET 8 incluido, sin recorte porque WinForms no lo admite). La carpeta `publicar/` está en `.gitignore`.
@@ -150,7 +162,7 @@ Marcar con `[x]` al completar cada punto en su etapa.
 - [x] 11. Transacciones con todos los campos y los 7 tipos mínimos; banco como origen/destino
 - [x] 12. Historial: agregar, recorrer ambos sentidos, buscar por jugador y por tipo, imprimir todo
 - [x] 13. Exportación del historial a TXT con los campos mínimos
-- [ ] 14. Módulo electrónico: dado de 2 dígitos + RFID (primero simulado, luego Arduino) — *flujo de pago con tarjeta listo en modo simulado (UID virtual, `VincularTarjeta`, `IdentificarTarjeta`); falta el Arduino*
+- [ ] 14. Módulo electrónico: dado de 2 dígitos + RFID (Raspberry Pi Pico W) — *firmware MicroPython, driver RC522 y documentación listos en `hardware/`; falta probarlo con la placa real e integrarlo en C# por USB serial (el modo simulado ya funciona)*
 - [x] 15. Todas las clases mínimas presentes; ninguna colección de .NET
 - [x] 16. Comunicación por sockets TCP con protocolo documentado (`docs/protocolo.md`) y difusión de estado
 - [x] 17. Todas las validaciones del servidor (en `Juego`; el cliente no puede modificar el modelo porque sus mutadores son `internal`)
