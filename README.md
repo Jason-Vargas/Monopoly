@@ -2,7 +2,7 @@
 
 Proyecto 1 del curso **Algoritmos y Estructuras de Datos 1** — Instituto Tecnológico de Costa Rica, II Semestre 2026.
 
-Versión simplificada de Monopoly Electrónico (tema clásico, edición Atlantic City en español) con arquitectura cliente-servidor sobre TCP, estructuras de datos lineales implementadas desde cero y un módulo electrónico (dado de 2 dígitos y lector RFID) basado en Arduino.
+Versión simplificada de Monopoly Electrónico (tema clásico, edición Atlantic City en español) con arquitectura cliente-servidor sobre TCP, estructuras de datos lineales implementadas desde cero y un módulo electrónico (dado de 2 dígitos y lector RFID) basado en una Raspberry Pi Pico W con MicroPython, conectada por USB a la computadora del organizador (ver [`hardware/README.md`](hardware/README.md)).
 
 > Proyecto académico sin afiliación con Hasbro. No se usan el logotipo ni la mascota oficiales.
 
@@ -69,4 +69,4 @@ El servidor muestra las IPv4 de la computadora para que otros equipos de la red 
 
 ## Estado
 
-En desarrollo: estructuras de datos, modelo, lógica del juego, comunicación TCP e interfaz gráfica listas; falta el módulo de hardware (Arduino).
+En desarrollo: estructuras de datos, modelo, lógica del juego, comunicación TCP e interfaz gráfica listas; el firmware del módulo electrónico (Pico W) está en `hardware/`; falta probarlo con la placa e integrarlo por USB serial.
