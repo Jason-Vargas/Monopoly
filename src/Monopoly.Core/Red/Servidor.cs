@@ -1,0 +1,573 @@
+using System;
+using System.IO;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading;
+using Monopoly.Core.Estructuras;
+using Monopoly.Core.Logica;
+using Monopoly.Core.Modelo;
+
+namespace Monopoly.Core.Red;
+
+/// <summary>
+/// Servidor TCP del juego (el "banco"), que corre en la máquina del organizador. Acepta clientes,
+/// atiende a cada uno en su propio hilo, traduce sus solicitudes a llamadas a <see cref="Juego"/>
+/// y, tras cada acción importante, difunde <c>EVENTO</c> y <c>ESTADO</c> a todos los clientes.
+/// </summary>
+/// <remarks>
+/// <para>Las solicitudes se procesan de a una (candado de procesamiento), de modo que los eventos y
+/// estados llegan a todos los clientes en el mismo orden.</para>
+/// <para>Desconexiones: el jugador desconectado <b>sigue en la partida</b> (no se elimina ni se salta
+/// su turno) y se avisa a los demás. Puede reconectarse enviando <c>CONECTAR</c> con el mismo nombre, y
+/// recupera su id. Si nunca vuelve, la partida espera en su turno.</para>
+/// </remarks>
+public sealed class Servidor : IDisposable
+{
+    /// <summary>
+    /// Puerto predeterminado.
+    /// </summary>
+    public const int PuertoPredeterminado = 5000;
+
+    private readonly Juego _juego;
+    private readonly TcpListener _escucha;
+    private readonly ListaSimple<ConexionCliente> _clientes = new ListaSimple<ConexionCliente>();
+    private readonly object _candadoClientes = new object();
+    private readonly object _candadoProcesamiento = new object();
+
+    private Thread? _hiloAceptar;
+    private volatile bool _activo;
+    private int _ultimoEventoEnviado;
+    private bool _finEnviado;
+    private int? _idUltimoMovimiento;
+    private int[] _ultimasRecorridas = new int[0];
+
+    /// <summary>
+    /// Crea el servidor (no empieza a escuchar hasta <see cref="Iniciar"/>).
+    /// </summary>
+    /// <param name="juego">Partida que administra el servidor.</param>
+    /// <param name="puerto">Puerto TCP (0 = uno libre elegido por el sistema).</param>
+    /// <param name="direccion">Dirección local; por defecto <see cref="IPAddress.Any"/> (todas las interfaces).</param>
+    public Servidor(Juego juego, int puerto = PuertoPredeterminado, IPAddress? direccion = null)
+    {
+        ArgumentNullException.ThrowIfNull(juego);
+        _juego = juego;
+        _escucha = new TcpListener(direccion ?? IPAddress.Any, puerto);
+    }
+
+    /// <summary>
+    /// Mensajes de diagnóstico del servidor (conexiones, solicitudes rechazadas, errores).
+    /// Se invoca desde hilos del servidor.
+    /// </summary>
+    public event Action<string>? Registro;
+
+    /// <summary>
+    /// Puerto en el que escucha (útil si se pidió el puerto 0).
+    /// </summary>
+    public int Puerto => ((IPEndPoint)_escucha.LocalEndpoint).Port;
+
+    /// <summary>
+    /// Indica si el servidor está aceptando conexiones.
+    /// </summary>
+    public bool Activo => _activo;
+
+    /// <summary>
+    /// Cantidad de conexiones abiertas (incluidas las que aún no enviaron CONECTAR).
+    /// </summary>
+    public int CantidadConexiones
+    {
+        get
+        {
+            lock (_candadoClientes)
+            {
+                return _clientes.Cantidad;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Obtiene las direcciones IPv4 de esta máquina (sin la de loopback), para que los demás se conecten.
+    /// </summary>
+    /// <returns>Las direcciones en formato texto.</returns>
+    public static ListaSimple<string> ObtenerIPv4Locales()
+    {
+        ListaSimple<string> direcciones = new ListaSimple<string>();
+        try
+        {
+            foreach (IPAddress direccion in Dns.GetHostAddresses(Dns.GetHostName()))
+            {
+                string texto = direccion.ToString();
+                if (direccion.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(direccion) && !direcciones.Contiene(texto))
+                {
+                    direcciones.AgregarAlFinal(texto);
+                }
+            }
+        }
+        catch (SocketException)
+        {
+            // Sin resolución de nombres: se devuelve la lista vacía.
+        }
+
+        return direcciones;
+    }
+
+    /// <summary>
+    /// Empieza a escuchar y a aceptar clientes en un hilo de fondo.
+    /// </summary>
+    public void Iniciar()
+    {
+        if (_activo)
+        {
+            return;
+        }
+
+        _escucha.Start();
+        _activo = true;
+        _hiloAceptar = new Thread(AceptarClientes) { IsBackground = true, Name = "Servidor-Aceptar" };
+        _hiloAceptar.Start();
+        Registrar($"Servidor escuchando en el puerto {Puerto}.");
+    }
+
+    /// <summary>
+    /// Deja de aceptar clientes y cierra todas las conexiones.
+    /// </summary>
+    public void Detener()
+    {
+        if (!_activo)
+        {
+            return;
+        }
+
+        _activo = false;
+        _escucha.Stop();
+        foreach (ConexionCliente conexion in CopiarClientes())
+        {
+            conexion.Cerrar();
+        }
+
+        Registrar("Servidor detenido.");
+    }
+
+    /// <summary>
+    /// Detiene el servidor.
+    /// </summary>
+    public void Dispose()
+    {
+        Detener();
+    }
+
+    private void AceptarClientes()
+    {
+        while (_activo)
+        {
+            TcpClient tcp;
+            try
+            {
+                tcp = _escucha.AcceptTcpClient();
+            }
+            catch (Exception ex) when (ex is SocketException || ex is ObjectDisposedException || ex is InvalidOperationException)
+            {
+                if (!_activo)
+                {
+                    return;
+                }
+
+                continue;
+            }
+
+            ConexionCliente conexion = new ConexionCliente(tcp);
+            lock (_candadoClientes)
+            {
+                _clientes.AgregarAlFinal(conexion);
+            }
+
+            Registrar($"Nueva conexión desde {conexion.Direccion}.");
+            Thread hilo = new Thread(() => AtenderCliente(conexion)) { IsBackground = true, Name = "Servidor-Cliente-" + conexion.Direccion };
+            hilo.Start();
+        }
+    }
+
+    private void AtenderCliente(ConexionCliente conexion)
+    {
+        try
+        {
+            string? linea;
+            while (_activo && (linea = conexion.LeerLinea()) != null)
+            {
+                if (string.IsNullOrWhiteSpace(linea))
+                {
+                    continue;
+                }
+
+                Mensaje mensaje;
+                try
+                {
+                    mensaje = Protocolo.Decodificar(linea);
+                }
+                catch (FormatException ex)
+                {
+                    conexion.Enviar(Protocolo.Codificar(Protocolo.Error, "Mensaje mal formado: " + ex.Message));
+                    continue;
+                }
+
+                if (!Procesar(conexion, mensaje))
+                {
+                    break;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException || ex is ObjectDisposedException || ex is SocketException)
+        {
+            // El cliente se desconectó abruptamente.
+        }
+        catch (Exception ex)
+        {
+            Registrar($"Error inesperado con {conexion.Direccion}: {ex.Message}");
+        }
+        finally
+        {
+            ManejarDesconexion(conexion);
+        }
+    }
+
+    /// <summary>
+    /// Procesa una solicitud. Devuelve <c>false</c> si el cliente pidió desconectarse.
+    /// </summary>
+    private bool Procesar(ConexionCliente conexion, Mensaje mensaje)
+    {
+        lock (_candadoProcesamiento)
+        {
+            if (mensaje.Comando == Protocolo.Desconectar)
+            {
+                return false;
+            }
+
+            if (mensaje.Comando == Protocolo.Conectar)
+            {
+                ProcesarConectar(conexion, mensaje);
+                return true;
+            }
+
+            if (conexion.IdJugador == null)
+            {
+                ResponderError(conexion, $"Debe enviar {Protocolo.Conectar}|nombre antes de cualquier otra solicitud.");
+                return true;
+            }
+
+            int id = conexion.IdJugador.Value;
+            switch (mensaje.Comando)
+            {
+                case Protocolo.IniciarPartida:
+                    Responder(conexion, _juego.IniciarPartida(id));
+                    break;
+                case Protocolo.TirarDados:
+                    ProcesarTirarDados(conexion, id);
+                    break;
+                case Protocolo.ComprarPropiedad:
+                    Responder(conexion, _juego.ComprarPropiedad(id));
+                    break;
+                case Protocolo.NoComprar:
+                    Responder(conexion, _juego.NoComprar(id));
+                    break;
+                case Protocolo.PagarConTarjeta:
+                    Responder(conexion, _juego.IdentificarTarjeta(_juego.ObtenerJugador(id)!.UidTarjeta ?? string.Empty));
+                    break;
+                case Protocolo.TerminarTurno:
+                    Responder(conexion, _juego.TerminarTurno(id));
+                    break;
+                case Protocolo.ConsultarEstado:
+                    conexion.Enviar(CodificarEstado());
+                    break;
+                case Protocolo.ConsultarTransacciones:
+                    ProcesarConsultarTransacciones(conexion, mensaje);
+                    break;
+                case Protocolo.ExportarTransacciones:
+                    Responder(conexion, _juego.ExportarHistorial());
+                    break;
+                default:
+                    ResponderError(conexion, $"Comando desconocido: {mensaje.Comando}.");
+                    break;
+            }
+
+            return true;
+        }
+    }
+
+    private void ProcesarConectar(ConexionCliente conexion, Mensaje mensaje)
+    {
+        if (conexion.IdJugador != null)
+        {
+            ResponderError(conexion, "Esta conexión ya está asociada a un jugador.");
+            return;
+        }
+
+        if (mensaje.CantidadCampos < 1 || string.IsNullOrWhiteSpace(mensaje.Campo(0)))
+        {
+            ResponderError(conexion, $"Uso: {Protocolo.Conectar}|nombre");
+            return;
+        }
+
+        string nombre = mensaje.Campo(0).Trim();
+
+        // Reconexión: un jugador existente con ese nombre y sin conexión activa recupera su lugar.
+        EstadoJugador? existente = BuscarJugadorPorNombre(nombre);
+        if (existente != null && EstaConectado(existente.Id))
+        {
+            ResponderError(conexion, $"{existente.Nombre} ya está conectado desde otra conexión.");
+            return;
+        }
+
+        if (existente != null)
+        {
+            conexion.IdJugador = existente.Id;
+            conexion.Enviar(Protocolo.Codificar(Protocolo.Bienvenida, Texto(existente.Id), existente.Nombre));
+            Registrar($"{existente.Nombre} se reconectó desde {conexion.Direccion}.");
+            EnviarATodos(Protocolo.Codificar(Protocolo.Evento, $"{existente.Nombre} se reconectó."));
+            DifundirCambios();
+            return;
+        }
+
+        ResultadoAccion resultado = _juego.UnirJugador(nombre);
+        if (!resultado.Exito)
+        {
+            ResponderError(conexion, resultado.Mensaje);
+            return;
+        }
+
+        int id = resultado.IdJugador!.Value;
+        conexion.IdJugador = id;
+        conexion.Enviar(Protocolo.Codificar(Protocolo.Bienvenida, Texto(id), _juego.ObtenerJugador(id)!.Nombre));
+        Registrar($"{nombre} se unió como jugador {id} desde {conexion.Direccion}.");
+        DifundirCambios();
+    }
+
+    private void ProcesarTirarDados(ConexionCliente conexion, int id)
+    {
+        ResultadoAccion resultado = _juego.TirarDados(id);
+        if (!resultado.Exito)
+        {
+            ResponderError(conexion, resultado.Mensaje);
+            return;
+        }
+
+        TiradaDados tirada = resultado.Tirada!.Value;
+        _idUltimoMovimiento = id;
+        _ultimasRecorridas = SerializadorEstado.CasillasRecorridas(resultado.Movimientos);
+        EnviarATodos(Protocolo.Codificar(Protocolo.Dados, Texto(id), Texto(tirada.Dado1), Texto(tirada.Dado2)));
+        DifundirCambios();
+    }
+
+    private void ProcesarConsultarTransacciones(ConexionCliente conexion, Mensaje mensaje)
+    {
+        string textoFiltro = mensaje.CantidadCampos > 0 && mensaje.Campo(0).Length > 0 ? mensaje.Campo(0) : nameof(FiltroTransacciones.Todas);
+        FiltroTransacciones filtro;
+        try
+        {
+            filtro = mensaje.CantidadCampos > 0 && mensaje.Campo(0).Length > 0
+                ? mensaje.Enumeracion<FiltroTransacciones>(0)
+                : FiltroTransacciones.Todas;
+        }
+        catch (FormatException)
+        {
+            ResponderError(conexion, $"Filtro desconocido: {textoFiltro}. Use TODAS, ANTIGUAS, RECIENTES, JUGADOR|nombre o TIPO|tipo.");
+            return;
+        }
+
+        string valor = mensaje.CantidadCampos > 1 ? mensaje.Campo(1) : string.Empty;
+        TipoTransaccion tipo = default;
+        if ((filtro == FiltroTransacciones.Jugador || filtro == FiltroTransacciones.Tipo) && valor.Length == 0)
+        {
+            ResponderError(conexion, $"El filtro {filtro.ToString().ToUpperInvariant()} requiere un valor.");
+            return;
+        }
+
+        if (filtro == FiltroTransacciones.Tipo && (!Enum.TryParse(valor, true, out tipo) || !Enum.IsDefined(tipo)))
+        {
+            ResponderError(conexion, $"Tipo de transacción desconocido: {valor}.");
+            return;
+        }
+
+        ListaSimple<Transaccion> lista = _juego.LeerHistorial(historial =>
+        {
+            ListaSimple<Transaccion> resultado = new ListaSimple<Transaccion>();
+            switch (filtro)
+            {
+                case FiltroTransacciones.Recientes:
+                    historial.RecorrerDesdeMasReciente(resultado.AgregarAlFinal);
+                    break;
+                case FiltroTransacciones.Jugador:
+                    historial.BuscarPorJugador(valor).RecorrerDesdeInicio(resultado.AgregarAlFinal);
+                    break;
+                case FiltroTransacciones.Tipo:
+                    historial.BuscarPorTipo(tipo).RecorrerDesdeInicio(resultado.AgregarAlFinal);
+                    break;
+                default:
+                    historial.RecorrerDesdeMasAntigua(resultado.AgregarAlFinal);
+                    break;
+            }
+
+            return resultado;
+        });
+
+        string descripcionFiltro = valor.Length > 0 ? $"{filtro.ToString().ToUpperInvariant()} {valor}" : filtro.ToString().ToUpperInvariant();
+        conexion.Enviar(SerializadorTransacciones.Codificar(descripcionFiltro, lista));
+    }
+
+    /// <summary>
+    /// Si la acción fue rechazada, responde ERROR solo al solicitante; si se aceptó, difunde los cambios a todos.
+    /// </summary>
+    private void Responder(ConexionCliente conexion, ResultadoAccion resultado)
+    {
+        if (resultado.Exito)
+        {
+            DifundirCambios();
+        }
+        else
+        {
+            ResponderError(conexion, resultado.Mensaje);
+        }
+    }
+
+    private void ResponderError(ConexionCliente conexion, string mensaje)
+    {
+        conexion.Enviar(Protocolo.Codificar(Protocolo.Error, mensaje));
+    }
+
+    /// <summary>
+    /// Envía a todos los eventos nuevos del juego, el ESTADO actual y, si la partida acaba de terminar, FIN.
+    /// </summary>
+    private void DifundirCambios()
+    {
+        foreach (EventoJuego evento in _juego.ObtenerEventosDesde(_ultimoEventoEnviado + 1))
+        {
+            EnviarATodos(Protocolo.Codificar(Protocolo.Evento, evento.Texto));
+            _ultimoEventoEnviado = evento.Numero;
+        }
+
+        InstantaneaJuego instantanea = _juego.ObtenerInstantanea();
+        EnviarATodos(SerializadorEstado.Codificar(new EstadoRed(instantanea, _idUltimoMovimiento, _ultimasRecorridas)));
+
+        if (!_finEnviado && instantanea.Estado == EstadoPartida.Finalizada)
+        {
+            _finEnviado = true;
+            EnviarATodos(CodificarFin(instantanea));
+        }
+    }
+
+    private string CodificarEstado()
+    {
+        return SerializadorEstado.Codificar(new EstadoRed(_juego.ObtenerInstantanea(), _idUltimoMovimiento, _ultimasRecorridas));
+    }
+
+    private string CodificarFin(InstantaneaJuego instantanea)
+    {
+        StringBuilder resumen = new StringBuilder();
+        string ganador = string.Empty;
+        foreach (EstadoJugador jugador in instantanea.Jugadores)
+        {
+            if (jugador.Id == instantanea.IdGanador)
+            {
+                ganador = jugador.Nombre;
+            }
+
+            if (resumen.Length > 0)
+            {
+                resumen.Append("; ");
+            }
+
+            resumen.Append($"{jugador.Nombre}: patrimonio {Formato.Dinero(jugador.Patrimonio)}{(jugador.Activo ? string.Empty : " (eliminado)")}");
+        }
+
+        string? ruta = _juego.RutaHistorialExportado;
+        if (ruta != null)
+        {
+            resumen.Append(". Historial: ").Append(ruta);
+        }
+
+        return Protocolo.Codificar(Protocolo.Fin, ganador, resumen.ToString());
+    }
+
+    /// <summary>
+    /// Envía una línea a todos los clientes que ya se unieron como jugadores.
+    /// </summary>
+    private void EnviarATodos(string linea)
+    {
+        foreach (ConexionCliente conexion in CopiarClientes())
+        {
+            if (conexion.IdJugador != null)
+            {
+                conexion.Enviar(linea);
+            }
+        }
+    }
+
+    private void ManejarDesconexion(ConexionCliente conexion)
+    {
+        lock (_candadoClientes)
+        {
+            _clientes.Eliminar(conexion);
+        }
+
+        conexion.Cerrar();
+        if (conexion.IdJugador == null || !_activo)
+        {
+            Registrar($"Se cerró la conexión de {conexion.Direccion}.");
+            return;
+        }
+
+        lock (_candadoProcesamiento)
+        {
+            string nombre = _juego.ObtenerJugador(conexion.IdJugador.Value)?.Nombre ?? "Un jugador";
+            Registrar($"{nombre} se desconectó ({conexion.Direccion}).");
+            EnviarATodos(Protocolo.Codificar(Protocolo.Evento,
+                $"{nombre} se desconectó. Sigue en la partida y puede reconectarse con el mismo nombre."));
+        }
+    }
+
+    private bool EstaConectado(int idJugador)
+    {
+        foreach (ConexionCliente conexion in CopiarClientes())
+        {
+            if (conexion.IdJugador == idJugador)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private EstadoJugador? BuscarJugadorPorNombre(string nombre)
+    {
+        foreach (EstadoJugador jugador in _juego.ObtenerInstantanea().Jugadores)
+        {
+            if (string.Equals(jugador.Nombre, nombre, StringComparison.OrdinalIgnoreCase))
+            {
+                return jugador;
+            }
+        }
+
+        return null;
+    }
+
+    private ConexionCliente[] CopiarClientes()
+    {
+        lock (_candadoClientes)
+        {
+            ConexionCliente[] copia = new ConexionCliente[_clientes.Cantidad];
+            int i = 0;
+            _clientes.Recorrer(conexion => copia[i++] = conexion);
+            return copia;
+        }
+    }
+
+    private void Registrar(string texto)
+    {
+        Registro?.Invoke(texto);
+    }
+
+    private static string Texto(int valor)
+    {
+        return valor.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+}

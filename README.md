@@ -12,9 +12,10 @@ Versión simplificada de Monopoly Electrónico (tema clásico, edición Atlantic
 |---|---|---|
 | `src/Monopoly.Core` | Biblioteca de clases | Estructuras de datos, modelo, lógica del juego, red y hardware |
 | `src/Monopoly.App` | Windows Forms | Interfaz gráfica (servidor/organizador y clientes) |
-| `tests/Monopoly.Tests` | xUnit | Pruebas unitarias |
+| `src/Monopoly.ClienteConsola` | Consola (temporal) | Servidor y cliente de consola para depurar el protocolo |
+| `tests/Monopoly.Tests` | xUnit | Pruebas unitarias y de integración (red) |
 
-El enunciado está en [`docs/enunciado.pdf`](docs/enunciado.pdf).
+El enunciado está en [`docs/enunciado.pdf`](docs/enunciado.pdf) y el protocolo cliente-servidor en [`docs/protocolo.md`](docs/protocolo.md).
 
 ## Requisitos
 
@@ -29,6 +30,18 @@ dotnet test Monopoly.sln
 dotnet run --project src/Monopoly.App
 ```
 
+## Probar una partida por consola
+
+Compile una vez y abra una terminal para el servidor y una por jugador (desde la raíz del repositorio):
+
+```bash
+dotnet build Monopoly.sln
+dotnet run --project src/Monopoly.ClienteConsola --no-build -- servidor 5000
+dotnet run --project src/Monopoly.ClienteConsola --no-build -- cliente 127.0.0.1 5000 Ana
+```
+
+El servidor muestra las IPv4 de la computadora para que otros equipos de la red se conecten. En el cliente, `?` muestra los comandos.
+
 ## Estado
 
-En desarrollo: por ahora solo existe la estructura inicial de la solución.
+En desarrollo: estructuras de datos, modelo, lógica del juego y comunicación TCP listas; faltan la interfaz gráfica y el hardware.
