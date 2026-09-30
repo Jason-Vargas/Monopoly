@@ -626,6 +626,35 @@ public class Juego
         }
     }
 
+    /// <summary>
+    /// Devuelve una copia del estado de la partida sin validar a un solicitante
+    /// (la usa el servidor para difundir el estado a todos los clientes).
+    /// </summary>
+    /// <returns>La instantánea actual.</returns>
+    public InstantaneaJuego ObtenerInstantanea()
+    {
+        lock (_candado)
+        {
+            return CrearInstantanea();
+        }
+    }
+
+    /// <summary>
+    /// Ejecuta una lectura del historial con el candado tomado, para que ningún otro hilo
+    /// registre transacciones mientras se recorre.
+    /// </summary>
+    /// <typeparam name="T">Tipo del resultado de la lectura.</typeparam>
+    /// <param name="lectura">Función que lee el historial (no debe modificarlo).</param>
+    /// <returns>El resultado de la lectura.</returns>
+    public T LeerHistorial<T>(Func<HistorialTransacciones, T> lectura)
+    {
+        ArgumentNullException.ThrowIfNull(lectura);
+        lock (_candado)
+        {
+            return lectura(Historial);
+        }
+    }
+
     // ----------------------------------------------------------------------------------------
     // Métodos privados: se llaman siempre con el candado tomado.
     // ----------------------------------------------------------------------------------------

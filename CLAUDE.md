@@ -72,7 +72,18 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
 - **Pagos obligatorios** (alquiler, impuesto, carta de pagar, pagar a cada jugador) → `EsperandoPago` hasta `IdentificarTarjeta(uid del deudor)`. `CobrarACadaJugador` (cumpleaños) se cobra automáticamente a los demás.
 - **Eliminación**: si no cubre un pago obligatorio, paga lo que tiene ("pago parcial"), queda inactivo, sus propiedades se liberan y sale de la cola; si era su turno, pasa al siguiente.
 - **Fin**: queda un único activo, o se completa `MaximoTurnos` (gana el mayor patrimonio; en empate, el primero en la cola). Exporta automáticamente `partidas/partida_AAAA-MM-DD_HH-mm-ss.txt`.
-- Registro de eventos legible: `ListaDobleEnlazada<EventoJuego>`; la red enviará los nuevos con `ObtenerEventosDesde`.
+- Registro de eventos legible: `ListaDobleEnlazada<EventoJuego>`; la red envía los nuevos con `ObtenerEventosDesde`.
+- Para el servidor: `ObtenerInstantanea()` (sin validar solicitante) y `LeerHistorial(func)` (lee el historial con el candado tomado).
+
+## Diseño de la red (`Monopoly.Core.Red`) — ver `docs/protocolo.md`
+
+- Protocolo de texto: una línea UTF-8 por mensaje, `COMANDO|campo|...`, con escapes `\\`, `\|`, `\n`, `\r` (`Protocolo.Codificar/Decodificar`, `Mensaje`). **Todo cambio al protocolo se refleja en `docs/protocolo.md`.**
+- `Servidor`: `TcpListener` (puerto 5000 por defecto, `IPAddress.Any`; las pruebas usan puerto 0 y loopback), un hilo por cliente, conexiones en `ListaSimple<ConexionCliente>` con `lock`. El jugador se identifica por la conexión. Las solicitudes se procesan de a una (`_candadoProcesamiento`) y tras cada acción aceptada se difunden `EVENTO`s nuevos + `ESTADO` (+ `FIN` una vez). Los rechazos van solo al solicitante como `ERROR`.
+- Desconexión: el jugador sigue en la partida (no se elimina ni se salta su turno); `CONECTAR` con el mismo nombre lo reconecta con su id.
+- `ESTADO` se serializa con `SerializadorEstado` (18 campos fijos + 10 por jugador) sobre `EstadoRed` (instantánea + dueños + casillas recorridas). `TRANSACCIONES` con `SerializadorTransacciones` (8 campos por transacción).
+- `Cliente`: `TcpClient` + hilo lector; notifica con eventos C# (`BienvenidaRecibida`, `ErrorRecibido`, `EstadoActualizado`, `DadosRecibidos`, `EventoRecibido`, `TransaccionesRecibidas`, `FinRecibido`, `Desconectado`, `MensajeRecibido`). **Se disparan en el hilo lector**: la interfaz debe usar `BeginInvoke`.
+- `PAGAR_CON_TARJETA` = modo simulado (UID del propio jugador). El lector RFID real se integrará en la etapa de hardware.
+- `src/Monopoly.ClienteConsola` es una herramienta **temporal** de depuración (`servidor [puerto]` / `cliente [host] [puerto] [nombre]`).
 
 ## Resumen de requisitos del enunciado
 
@@ -107,20 +118,20 @@ Marcar con `[x]` al completar cada punto en su etapa.
 - [x] 0.1. Estructuras genéricas en `Monopoly.Core.Estructuras` con pruebas: `ListaSimple<T>`, `ListaDobleEnlazada<T>`, `ListaCircularDoble<T>`/`NodoCircularDoble<T>`, `ColaCircular<T>` (sobre arreglo), `Cola<T>` (enlazada). Base de los puntos 4, 5, 8, 10 y 12, que se marcarán cuando el modelo las use.
 - [ ] 1. Descripción general: partida de 4 jugadores en al menos 2 computadoras; temática definida (Atlantic City en español)
 - [ ] 2. Objetivos cubiertos (POO, estructuras propias, cliente-servidor, estado centralizado, transacciones, hardware)
-- [ ] 3. Arquitectura: servidor/banco con estado oficial en la máquina del organizador; clientes solo solicitan acciones — *lógica lista (`Juego` + `Banco`, modelo de solo lectura fuera de Core); falta el servidor TCP*
+- [ ] 3. Arquitectura: servidor/banco con estado oficial en la máquina del organizador; clientes solo solicitan acciones — *lógica y servidor TCP listos; falta que la interfaz levante el servidor en la máquina del organizador*
 - [x] 4. Jugador con id, nombre, saldo, posición, estado activo y propiedades en estructura lineal propia (`ListaSimple<Propiedad>`)
 - [ ] 5. Tablero como lista circular doblemente enlazada con ≥ 24 casillas, visible para todos — *modelo listo (40 casillas clásicas en `ListaCircularDoble`); falta mostrarlo a todos (interfaz/red)*
 - [x] 6. Casilla base + Propiedad, CasillaEvento, CasillaEspecial con polimorfismo
 - [x] 7. Propiedades: datos mínimos y comportamiento comprar / alquiler / propia
 - [x] 8. Turnos con cola circular, avance automático, bloqueo fuera de turno
-- [ ] 9. Dos dados por turno, resultado transmitido, movimiento nodo a nodo mostrado a todos — *lógica lista (`TirarDados` devuelve tirada y casillas recorridas); falta transmitir y animar*
+- [ ] 9. Dos dados por turno, resultado transmitido, movimiento nodo a nodo mostrado a todos — *lógica y red listas (`DADOS` + casillas recorridas en `ESTADO`); falta animarlo en la interfaz*
 - [x] 10. Mazo de cartas de evento que devuelve la carta al final; los 6 tipos de evento
 - [x] 11. Transacciones con todos los campos y los 7 tipos mínimos; banco como origen/destino
 - [x] 12. Historial: agregar, recorrer ambos sentidos, buscar por jugador y por tipo, imprimir todo
 - [x] 13. Exportación del historial a TXT con los campos mínimos
 - [ ] 14. Módulo electrónico: dado de 2 dígitos + RFID (primero simulado, luego Arduino) — *flujo de pago con tarjeta listo en modo simulado (UID virtual, `VincularTarjeta`, `IdentificarTarjeta`); falta el Arduino*
-- [ ] 15. Todas las clases mínimas presentes; ninguna colección de .NET — *faltan solo Servidor y Cliente*
-- [ ] 16. Comunicación por sockets TCP con protocolo documentado y difusión de estado
+- [x] 15. Todas las clases mínimas presentes; ninguna colección de .NET
+- [x] 16. Comunicación por sockets TCP con protocolo documentado (`docs/protocolo.md`) y difusión de estado
 - [x] 17. Todas las validaciones del servidor (en `Juego`; el cliente no puede modificar el modelo porque sus mutadores son `internal`)
 - [x] 18. Eliminación de jugadores y fin de partida (último activo o límite de turnos con patrimonio)
 - [ ] 19. Entregables: UML, doc. de estructuras, protocolo, archivo de transacciones, manual, hardware
@@ -132,4 +143,7 @@ Marcar con `[x]` al completar cada punto en su etapa.
 dotnet build Monopoly.sln
 dotnet test Monopoly.sln
 dotnet run --project src/Monopoly.App
+# Depuración del protocolo (compilar antes; --no-build permite varias instancias a la vez):
+dotnet run --project src/Monopoly.ClienteConsola --no-build -- servidor 5000
+dotnet run --project src/Monopoly.ClienteConsola --no-build -- cliente 127.0.0.1 5000 Ana
 ```
