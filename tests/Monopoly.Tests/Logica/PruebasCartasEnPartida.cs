@@ -63,6 +63,7 @@ public class PruebasCartasEnPartida : PartidaDePrueba
         Assert.Equal(4, Posicion(Ana));
         Assert.Equal(FaseTurno.EsperandoPago, Estado().Fase);
         Assert.Equal(200, Estado().MontoPagoPendiente);
+        Assert.Equal("Ana debe pagar $200 al banco", Estado().DescripcionPagoPendiente);
 
         Ok(Juego.IdentificarTarjeta(Uid(Ana)));
 

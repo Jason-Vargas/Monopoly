@@ -27,6 +27,9 @@ public class VayaALaCarcel : CasillaEspecial
     public override string Categoria => "Vaya a la Cárcel";
 
     /// <inheritdoc/>
+    public override string Detalle => "Y pierda un turno";
+
+    /// <inheritdoc/>
     public override ResultadoCasilla AlCaer(Jugador jugador, Juego juego)
     {
         ArgumentNullException.ThrowIfNull(jugador);

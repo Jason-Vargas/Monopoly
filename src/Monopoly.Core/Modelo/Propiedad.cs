@@ -66,6 +66,11 @@ public class Propiedad : Casilla
     public override string Categoria => "Propiedad";
 
     /// <summary>
+    /// Precio de compra, por ejemplo "$60".
+    /// </summary>
+    public override string Detalle => Formato.Dinero(PrecioCompra);
+
+    /// <summary>
     /// Calcula el alquiler que se cobra actualmente. En las calles es el alquiler fijo.
     /// </summary>
     /// <returns>El alquiler a cobrar.</returns>

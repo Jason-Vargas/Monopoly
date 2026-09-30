@@ -158,6 +158,22 @@ public class PruebasCasillas
         }
     }
 
+    [Theory]
+    [InlineData(0, "Cobre $200 al pasar")]
+    [InlineData(1, "$60")]
+    [InlineData(4, "Pague $200")]
+    [InlineData(5, "$200")]
+    [InlineData(7, "Saque una carta")]
+    [InlineData(10, "Solo de visita")]
+    [InlineData(12, "$150")]
+    [InlineData(20, "Descanse")]
+    [InlineData(30, "Y pierda un turno")]
+    [InlineData(38, "Pague $100")]
+    public void Detalle_EsPolimorfico(int indice, string esperado)
+    {
+        Assert.Equal(esperado, Casilla(indice).Detalle);
+    }
+
     [Fact]
     public void CartaEvento_TraduceCadaTipoASuEfecto()
     {

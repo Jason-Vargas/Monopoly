@@ -30,6 +30,23 @@ dotnet test Monopoly.sln
 dotnet run --project src/Monopoly.App
 ```
 
+## Jugar con la interfaz gráfica
+
+1. El organizador abre la aplicación, escribe su nombre y pulsa **Crear partida**: su equipo aloja al banco y la sala de espera muestra la IP y el puerto que debe compartir.
+2. Los demás abren la aplicación, escriben su nombre, la IP y el puerto, y pulsan **Unirse a partida**.
+3. Con 2 a 4 jugadores, el organizador pulsa **Iniciar partida**.
+
+Para probar con 4 ventanas en una sola computadora (compilar primero):
+
+```powershell
+dotnet build Monopoly.sln
+$exe = "src\Monopoly.App\bin\Debug\net8.0-windows\Monopoly.App.exe"
+Start-Process $exe "--crear Ana 5000 100"
+Start-Process $exe "--unirse Beto 127.0.0.1 5000"
+Start-Process $exe "--unirse Carla 127.0.0.1 5000"
+Start-Process $exe "--unirse Dani 127.0.0.1 5000"
+```
+
 ## Probar una partida por consola
 
 Compile una vez y abra una terminal para el servidor y una por jugador (desde la raíz del repositorio):
@@ -44,4 +61,4 @@ El servidor muestra las IPv4 de la computadora para que otros equipos de la red 
 
 ## Estado
 
-En desarrollo: estructuras de datos, modelo, lógica del juego y comunicación TCP listas; faltan la interfaz gráfica y el hardware.
+En desarrollo: estructuras de datos, modelo, lógica del juego, comunicación TCP e interfaz gráfica listas; falta el módulo de hardware (Arduino).

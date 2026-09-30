@@ -79,6 +79,7 @@ public class PruebasPartida : PartidaDePrueba
         Assert.Equal(FaseTurno.EsperandoPago, estado.Fase);
         Assert.Equal(Beto, estado.IdDeudor);
         Assert.Equal(4, estado.MontoPagoPendiente);
+        Assert.Equal("Beto debe pagar $4 a Ana", estado.DescripcionPagoPendiente);
         Rechazada(Juego.TerminarTurno(Beto), "pago pendiente");
 
         Rechazada(Juego.IdentificarTarjeta("A1B2C3D4"), "pertenece a Ana; se espera la tarjeta de Beto");

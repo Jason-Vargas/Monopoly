@@ -35,6 +35,9 @@ public class Impuesto : CasillaEspecial
     public override string Categoria => "Impuesto";
 
     /// <inheritdoc/>
+    public override string Detalle => "Pague " + Formato.Dinero(Monto);
+
+    /// <inheritdoc/>
     public override ResultadoCasilla AlCaer(Jugador jugador, Juego juego)
     {
         ArgumentNullException.ThrowIfNull(jugador);

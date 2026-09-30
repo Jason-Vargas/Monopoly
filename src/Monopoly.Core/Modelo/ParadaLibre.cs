@@ -21,6 +21,9 @@ public class ParadaLibre : CasillaEspecial
     public override string Categoria => "Parada Libre";
 
     /// <inheritdoc/>
+    public override string Detalle => "Descanse";
+
+    /// <inheritdoc/>
     public override ResultadoCasilla AlCaer(Jugador jugador, Juego juego)
     {
         ArgumentNullException.ThrowIfNull(jugador);

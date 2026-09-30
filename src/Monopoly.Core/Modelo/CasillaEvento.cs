@@ -19,6 +19,9 @@ public abstract class CasillaEvento : Casilla
     {
     }
 
+    /// <inheritdoc/>
+    public override string Detalle => "Saque una carta";
+
     /// <summary>
     /// Obtiene el mazo del que saca carta esta casilla.
     /// </summary>

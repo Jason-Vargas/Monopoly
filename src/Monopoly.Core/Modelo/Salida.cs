@@ -40,6 +40,9 @@ public class Salida : CasillaEspecial
     public override string Categoria => "Salida";
 
     /// <inheritdoc/>
+    public override string Detalle => $"Cobre {Formato.Dinero(Premio)} al pasar";
+
+    /// <inheritdoc/>
     public override ResultadoCasilla AlCaer(Jugador jugador, Juego juego)
     {
         ArgumentNullException.ThrowIfNull(jugador);
