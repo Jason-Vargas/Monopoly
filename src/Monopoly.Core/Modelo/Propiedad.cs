@@ -66,7 +66,7 @@ public class Propiedad : Casilla
     public override string Categoria => "Propiedad";
 
     /// <summary>
-    /// Precio de compra, por ejemplo "$60".
+    /// Precio de compra, por ejemplo "₡60".
     /// </summary>
     public override string Detalle => Formato.Dinero(PrecioCompra);
 

@@ -18,8 +18,10 @@ public sealed class EstadoRed
     /// <param name="casillasRecorridas">Casillas recorridas en ese movimiento, en orden.</param>
     /// <param name="idsDesconectados">Jugadores sin conexión activa con el servidor (opcional).</param>
     /// <param name="cajeroConectado">Si el cajero físico (Pico W) está conectado al servidor.</param>
-    public EstadoRed(InstantaneaJuego instantanea, int? idJugadorUltimoMovimiento, int[] casillasRecorridas, int[]? idsDesconectados = null, bool cajeroConectado = false)
-        : this(instantanea, idJugadorUltimoMovimiento, casillasRecorridas, CalcularPropietarios(instantanea), idsDesconectados, cajeroConectado)
+    /// <param name="modoSinHardware">Si el servidor está en modo sin hardware (pruebas).</param>
+    public EstadoRed(InstantaneaJuego instantanea, int? idJugadorUltimoMovimiento, int[] casillasRecorridas, int[]? idsDesconectados = null,
+        bool cajeroConectado = false, bool modoSinHardware = false)
+        : this(instantanea, idJugadorUltimoMovimiento, casillasRecorridas, CalcularPropietarios(instantanea), idsDesconectados, cajeroConectado, modoSinHardware)
     {
     }
 
@@ -32,9 +34,12 @@ public sealed class EstadoRed
     /// <param name="propietarios">Id del dueño por índice de casilla (0 = sin dueño).</param>
     /// <param name="idsDesconectados">Jugadores sin conexión activa con el servidor.</param>
     /// <param name="cajeroConectado">Si el cajero físico (Pico W) está conectado al servidor.</param>
-    public EstadoRed(InstantaneaJuego instantanea, int? idJugadorUltimoMovimiento, int[] casillasRecorridas, int[] propietarios, int[]? idsDesconectados, bool cajeroConectado = false)
+    /// <param name="modoSinHardware">Si el servidor está en modo sin hardware (pruebas).</param>
+    public EstadoRed(InstantaneaJuego instantanea, int? idJugadorUltimoMovimiento, int[] casillasRecorridas, int[] propietarios, int[]? idsDesconectados,
+        bool cajeroConectado = false, bool modoSinHardware = false)
     {
         CajeroConectado = cajeroConectado;
+        ModoSinHardware = modoSinHardware;
         ArgumentNullException.ThrowIfNull(instantanea);
         Instantanea = instantanea;
         IdJugadorUltimoMovimiento = idJugadorUltimoMovimiento;
@@ -48,6 +53,17 @@ public sealed class EstadoRed
     /// pasándola por el lector, y el botón del cajero tira los dados.
     /// </summary>
     public bool CajeroConectado { get; }
+
+    /// <summary>
+    /// Indica si el servidor está en modo sin hardware (pruebas): el organizador simula el botón y las tarjetas.
+    /// </summary>
+    public bool ModoSinHardware { get; }
+
+    /// <summary>
+    /// Indica si la partida está en pausa porque el modo hardware está activo y la Pico W no está conectada
+    /// (no se puede tirar ni pagar hasta reconectarla).
+    /// </summary>
+    public bool EnPausaPorCajero => !ModoSinHardware && !CajeroConectado;
 
     /// <summary>
     /// Jugadores registrados que no tienen una conexión activa con el servidor.

@@ -15,7 +15,7 @@ namespace Monopoly.Core.Red;
 /// 5 id ganador · 6 id propiedad en venta · 7 id deudor · 8 monto pendiente · 9 descripción del pago ·
 /// 10 dado 1 · 11 dado 2 · 12 id del último movimiento · 13 casillas recorridas ("4,5,6") ·
 /// 14 dueños ("3:1,5:2") · 15 cantidad de eventos · 16 cantidad de transacciones · 17 cantidad de jugadores (N) ·
-/// 18 jugadores desconectados ("2,4") · 19 cajero físico conectado (1/0);
+/// 18 jugadores desconectados ("2,4") · 19 cajero físico conectado (1/0) · 20 modo sin hardware (1/0);
 /// luego N bloques de 10 campos: id · nombre · color · saldo · posición · activo (1/0) · turnos por perder ·
 /// patrimonio · propiedades ("1,3") · tarjeta física (1/0). Los opcionales vacíos significan "ninguno".
 /// </remarks>
@@ -24,7 +24,7 @@ public static class SerializadorEstado
     /// <summary>
     /// Campos fijos antes de los bloques de jugadores.
     /// </summary>
-    public const int CamposFijos = 20;
+    public const int CamposFijos = 21;
 
     /// <summary>
     /// Campos por jugador.
@@ -63,6 +63,7 @@ public static class SerializadorEstado
         campos[17] = Texto(jugadores.Length);
         campos[18] = UnirEnteros(estado.IdsDesconectados);
         campos[19] = estado.CajeroConectado ? "1" : "0";
+        campos[20] = estado.ModoSinHardware ? "1" : "0";
 
         for (int j = 0; j < jugadores.Length; j++)
         {
@@ -142,7 +143,7 @@ public static class SerializadorEstado
             mensaje.Entero(16));
 
         return new EstadoRed(instantanea, mensaje.EnteroOpcional(12), SepararEnteros(mensaje.Campo(13)),
-            DecodificarPropietarios(mensaje.Campo(14)), SepararEnteros(mensaje.Campo(18)), mensaje.Booleano(19));
+            DecodificarPropietarios(mensaje.Campo(14)), SepararEnteros(mensaje.Campo(18)), mensaje.Booleano(19), mensaje.Booleano(20));
     }
 
     private static string Texto(int valor)

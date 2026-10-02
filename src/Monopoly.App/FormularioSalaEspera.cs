@@ -194,15 +194,45 @@ internal sealed class FormularioSalaEspera : Form
         ActualizarVinculacion();
 
         int cantidad = instantanea.Jugadores.Length;
-        bool puedeIniciar = cantidad >= Juego.MinimoJugadores && cantidad <= Juego.MaximoJugadores;
+        bool cantidadValida = cantidad >= Juego.MinimoJugadores && cantidad <= Juego.MaximoJugadores;
+
+        // En modo hardware todos necesitan una tarjeta física vinculada (el servidor también lo exige).
+        string sinTarjeta = string.Empty;
+        if (!estado.ModoSinHardware)
+        {
+            foreach (EstadoJugador j in instantanea.Jugadores)
+            {
+                if (!j.TieneTarjetaFisica)
+                {
+                    sinTarjeta += (sinTarjeta.Length > 0 ? ", " : string.Empty) + j.Nombre;
+                }
+            }
+        }
+
+        bool puedeIniciar = cantidadValida && sinTarjeta.Length == 0;
         _btnIniciar.Enabled = _sesion.EsOrganizador && puedeIniciar;
         _lblEstado.ForeColor = Color.Black;
         string organizador = cantidad > 0 ? instantanea.Jugadores[0].Nombre : "el organizador";
-        _lblEstado.Text = _sesion.EsOrganizador
-            ? (puedeIniciar
-                ? $"Jugadores: {cantidad}/{Juego.MaximoJugadores}. Puede iniciar la partida cuando estén todos."
-                : $"Jugadores: {cantidad}/{Juego.MaximoJugadores}. Se necesitan al menos {Juego.MinimoJugadores} para iniciar.")
-            : $"Jugadores: {cantidad}/{Juego.MaximoJugadores}. Esperando a que {organizador} inicie la partida...";
+        string texto = $"Jugadores: {cantidad}/{Juego.MaximoJugadores}. ";
+        if (!_sesion.EsOrganizador)
+        {
+            texto += $"Esperando a que {organizador} inicie la partida...";
+        }
+        else if (!cantidadValida)
+        {
+            texto += $"Se necesitan al menos {Juego.MinimoJugadores} para iniciar.";
+        }
+        else if (sinTarjeta.Length > 0)
+        {
+            _lblEstado.ForeColor = Color.FromArgb(200, 100, 0);
+            texto += $"Vincule una tarjeta a: {sinTarjeta} (o active el modo sin hardware para pruebas).";
+        }
+        else
+        {
+            texto += "Puede iniciar la partida cuando estén todos.";
+        }
+
+        _lblEstado.Text = texto;
     }
 
     private void AlRecibirEvento(string texto)

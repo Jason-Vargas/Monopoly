@@ -33,6 +33,13 @@ public sealed record ResultadoAccion(bool Exito, string Mensaje)
     public ListaSimple<ResultadoMovimiento> Movimientos { get; init; } = new ListaSimple<ResultadoMovimiento>();
 
     /// <summary>
+    /// En una lectura de tarjeta con compra o pago pendiente: <c>true</c> si el pago o la compra se completó,
+    /// <c>false</c> si se rechazó (tarjeta de otro, no registrada, saldo insuficiente para comprar o deudor
+    /// eliminado por no cubrir el pago); <c>null</c> si no correspondía a un pago.
+    /// </summary>
+    public bool? PagoAceptado { get; init; }
+
+    /// <summary>
     /// Estado de la partida (en <see cref="Juego.ConsultarEstado"/>).
     /// </summary>
     public InstantaneaJuego? Instantanea { get; init; }

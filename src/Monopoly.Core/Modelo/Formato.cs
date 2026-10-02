@@ -8,13 +8,18 @@ namespace Monopoly.Core.Modelo;
 public static class Formato
 {
     /// <summary>
-    /// Da formato a una cantidad de dinero, por ejemplo <c>$1,500</c>.
+    /// Símbolo de la moneda del juego (colón costarricense).
+    /// </summary>
+    public const string SimboloMoneda = "₡";
+
+    /// <summary>
+    /// Da formato a una cantidad de dinero, por ejemplo <c>₡1,500</c>.
     /// </summary>
     /// <param name="monto">Monto a mostrar.</param>
     /// <returns>El monto con símbolo y separador de miles.</returns>
     public static string Dinero(int monto)
     {
-        return "$" + monto.ToString("N0", CultureInfo.InvariantCulture);
+        return SimboloMoneda + monto.ToString("N0", CultureInfo.InvariantCulture);
     }
 
     /// <summary>

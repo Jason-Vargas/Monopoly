@@ -119,7 +119,7 @@ public class PruebasHistorial
 
         Assert.Contains("Compra de propiedad", lineas[2]);
         Assert.Contains("Premio por pasar por inicio", lineas[4]);
-        Assert.Contains("$400", lineas[6]);
+        Assert.Contains("₡400", lineas[6]);
         Assert.Contains("Compra de Paseo Marítimo", lineas[6]);
     }
 
@@ -146,7 +146,7 @@ public class PruebasHistorial
             string contenido = File.ReadAllText(ruta);
             Assert.Contains("HISTORIAL DE TRANSACCIONES", contenido);
             Assert.Contains("Fecha de la partida: 29/09/2026 14:00:00", contenido);
-            Assert.Contains("Ana (ficha Rojo): saldo $1,500, patrimonio $1,560, activo", contenido);
+            Assert.Contains("Ana (ficha Rojo): saldo ₡1,500, patrimonio ₡1,560, activo", contenido);
             Assert.Contains("Beto (ficha Azul)", contenido);
             Assert.Contains("eliminado", contenido);
             Assert.Contains("Total de transacciones: 5", contenido);
@@ -177,6 +177,6 @@ public class PruebasHistorial
     {
         Transaccion t = _historial.Registrar(3, TipoTransaccion.PagoAlquiler, "Beto", "Ana", 50, "Alquiler");
 
-        Assert.Equal("#1 T3 Pago de alquiler: Beto -> Ana $50 (Alquiler)", t.ToString());
+        Assert.Equal("#1 T3 Pago de alquiler: Beto -> Ana ₡50 (Alquiler)", t.ToString());
     }
 }

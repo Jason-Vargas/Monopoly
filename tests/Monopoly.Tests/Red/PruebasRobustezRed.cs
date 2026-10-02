@@ -34,6 +34,7 @@ public class PruebasRobustezRed : IDisposable
             CarpetaPartidas = _carpeta,
         });
         _servidor = new Servidor(juego, 0, IPAddress.Loopback);
+        _servidor.EstablecerModoSinHardware(true);  // los clientes tiran y pagan desde la red (sin Pico)
         _servidor.Iniciar();
     }
 
@@ -106,7 +107,7 @@ public class PruebasRobustezRed : IDisposable
             }
         }
 
-        c[0].Cliente.ConsultarEstado();
+        c[0].Cliente.PagarConTarjeta();  // confirma la compra pendiente con la tarjeta
         EstadoRed estado = c[0].EsperarEstado(e => e.PropietarioDe(3) == 1);
         Assert.Equal(1440, estado.BuscarJugador(1)!.Saldo);
         Assert.Equal(3, estado.BuscarJugador(1)!.Posicion);

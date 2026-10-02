@@ -43,6 +43,8 @@ public sealed class Servidor : IDisposable
     private int? _idUltimoMovimiento;
     private int[] _ultimasRecorridas = new int[0];
     private IDispositivoCajero _cajero = new CajeroSimulado();
+    private CajeroSimulado? _cajeroPruebas;
+    private bool _modoSinHardware;
     private int? _idVinculacion;
     private ConexionCliente? _conexionVinculacion;
 
@@ -300,13 +302,20 @@ public sealed class Servidor : IDisposable
             switch (mensaje.Comando)
             {
                 case Protocolo.IniciarPartida:
-                    Responder(conexion, _juego.IniciarPartida(id));
+                    ProcesarIniciarPartida(conexion, id);
                     break;
                 case Protocolo.TirarDados:
+                    if (!_modoSinHardware)
+                    {
+                        ResponderError(conexion, "Los dados se lanzan con el botón físico del cajero.");
+                        break;
+                    }
+
                     ProcesarTirarDados(conexion, id);
                     break;
                 case Protocolo.ComprarPropiedad:
-                    Responder(conexion, _juego.ComprarPropiedad(id));
+                    // Solo inicia la compra: se completa cuando el jugador acerca su tarjeta.
+                    Responder(conexion, _juego.SolicitarCompra(id));
                     break;
                 case Protocolo.NoComprar:
                     Responder(conexion, _juego.NoComprar(id));
@@ -432,7 +441,8 @@ public sealed class Servidor : IDisposable
             }
             else
             {
-                AvisarCajero("Botón del dado: " + resultado.Mensaje);
+                // Botón presionado en un momento que no corresponde: se ignora y queda en el registro.
+                AvisarCajero("Se ignoró el botón: " + resultado.Mensaje);
             }
 
             return;
@@ -506,21 +516,136 @@ public sealed class Servidor : IDisposable
     }
 
     /// <summary>
-    /// <c>PAGAR_CON_TARJETA</c> (modo simulado): usa el UID del propio jugador. Si hay un cajero físico
-    /// conectado y el jugador tiene tarjeta física, debe pagar pasándola por el lector.
+    /// <c>PAGAR_CON_TARJETA</c>: solo en modo sin hardware (pruebas o cliente de consola), usa el UID del propio
+    /// jugador y pasa por el mismo flujo que una tarjeta leída. En modo hardware se paga y se compra
+    /// únicamente acercando la tarjeta al lector.
     /// </summary>
     private void ProcesarPagarConTarjeta(ConexionCliente conexion, int id)
     {
-        Jugador jugador = _juego.ObtenerJugador(id)!;
-        string uid = jugador.UidTarjeta ?? string.Empty;
-        bool tarjetaFisica = !uid.StartsWith(Juego.PrefijoTarjetaVirtual, StringComparison.Ordinal);
-        if (CajeroFisicoActivo && tarjetaFisica)
+        if (!_modoSinHardware)
         {
-            ResponderError(conexion, "Usted tiene una tarjeta física: pásela por el lector del cajero para pagar.");
+            ResponderError(conexion, "Acerque su tarjeta al lector del cajero.");
             return;
         }
 
-        Responder(conexion, _juego.IdentificarTarjeta(uid));
+        ProcesarLecturaTarjeta(_juego.ObtenerJugador(id)!.UidTarjeta ?? string.Empty, conexion);
+    }
+
+    /// <summary>
+    /// <c>INICIAR_PARTIDA</c>: en modo hardware, todos los jugadores deben tener una tarjeta física vinculada.
+    /// </summary>
+    private void ProcesarIniciarPartida(ConexionCliente conexion, int id)
+    {
+        if (!_modoSinHardware)
+        {
+            string faltan = string.Empty;
+            foreach (EstadoJugador jugador in _juego.ObtenerInstantanea().Jugadores)
+            {
+                if (!jugador.TieneTarjetaFisica)
+                {
+                    faltan += (faltan.Length > 0 ? ", " : string.Empty) + jugador.Nombre;
+                }
+            }
+
+            if (faltan.Length > 0)
+            {
+                ResponderError(conexion, $"Todos los jugadores deben tener una tarjeta vinculada antes de iniciar. Faltan: {faltan}.");
+                return;
+            }
+        }
+
+        Responder(conexion, _juego.IniciarPartida(id));
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Modo sin hardware (pruebas)
+    // ------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Indica si el servidor está en modo sin hardware (pruebas): el organizador simula el botón y las
+    /// tarjetas y no se envían mensajes a la Pico. Por defecto es <c>false</c> (modo hardware).
+    /// </summary>
+    public bool ModoSinHardware
+    {
+        get
+        {
+            lock (_candadoProcesamiento)
+            {
+                return _modoSinHardware;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Activa o desactiva el modo sin hardware. Al activarlo se usa un cajero simulado propio del servidor
+    /// (el que conecten <see cref="SimularBoton"/> y <see cref="SimularTarjetaDelJugadorEnTurno"/>); al
+    /// desactivarlo, la partida espera a que se conecte la Pico W.
+    /// </summary>
+    /// <param name="activo">Si se activa el modo sin hardware.</param>
+    public void EstablecerModoSinHardware(bool activo)
+    {
+        lock (_candadoProcesamiento)
+        {
+            if (_modoSinHardware == activo)
+            {
+                return;
+            }
+
+            _modoSinHardware = activo;
+            if (activo)
+            {
+                _cajeroPruebas = new CajeroSimulado();
+                UsarCajero(_cajeroPruebas);
+            }
+            else
+            {
+                _cajeroPruebas = null;
+                InformarCambioCajero();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Modo sin hardware: simula una pulsación del botón del dado (mismo flujo que <c>BOTON</c> de la Pico).
+    /// </summary>
+    /// <returns>Rechazo si no está activo el modo sin hardware.</returns>
+    public ResultadoAccion SimularBoton()
+    {
+        lock (_candadoProcesamiento)
+        {
+            if (!_modoSinHardware || _cajeroPruebas == null)
+            {
+                return ResultadoAccion.Fallido("La simulación solo está disponible en el modo sin hardware.");
+            }
+
+            _cajeroPruebas.SimularBoton();
+            return ResultadoAccion.Correcto("Botón simulado.");
+        }
+    }
+
+    /// <summary>
+    /// Modo sin hardware: simula que el jugador en turno acerca su tarjeta (mismo flujo que <c>RFID:uid</c>,
+    /// incluidas las compras y los pagos).
+    /// </summary>
+    /// <returns>Rechazo si no está activo el modo sin hardware o no hay jugador en turno.</returns>
+    public ResultadoAccion SimularTarjetaDelJugadorEnTurno()
+    {
+        lock (_candadoProcesamiento)
+        {
+            if (!_modoSinHardware || _cajeroPruebas == null)
+            {
+                return ResultadoAccion.Fallido("La simulación solo está disponible en el modo sin hardware.");
+            }
+
+            int? idEnTurno = _juego.ObtenerInstantanea().IdJugadorEnTurno;
+            if (!idEnTurno.HasValue)
+            {
+                return ResultadoAccion.Fallido("No hay un jugador en turno.");
+            }
+
+            _cajeroPruebas.SimularTarjeta(_juego.ObtenerJugador(idEnTurno.Value)!.UidTarjeta ?? string.Empty);
+            return ResultadoAccion.Correcto("Tarjeta simulada.");
+        }
     }
 
     /// <summary>
@@ -584,7 +709,7 @@ public sealed class Servidor : IDisposable
             InstantaneaJuego instantanea = _juego.ObtenerInstantanea();
             if (instantanea.Estado != EstadoPartida.EnCurso || !instantanea.IdJugadorEnTurno.HasValue)
             {
-                AvisarCajero("Botón del dado: la partida no está en curso.");
+                AvisarCajero("Se ignoró el botón: la partida no está en curso.");
                 return;
             }
 
@@ -627,27 +752,47 @@ public sealed class Servidor : IDisposable
                 return;
             }
 
-            InstantaneaJuego instantanea = _juego.ObtenerInstantanea();
-            if (instantanea.Estado == EstadoPartida.EnCurso && instantanea.IdDeudor.HasValue)
-            {
-                // Pago pendiente: solo la tarjeta del deudor lo ejecuta.
-                ResultadoAccion pago = _juego.IdentificarTarjeta(uid);
-                _cajero.IndicarPago(pago.Exito);  // LED de pago: encendido 2 s o 3 parpadeos rápidos
-                if (pago.Exito)
-                {
-                    DifundirCambios();
-                }
-                else
-                {
-                    AvisarCajero(pago.Mensaje);
-                }
+            ProcesarLecturaTarjeta(uid, null);
+        }
+    }
 
-                return;
+    /// <summary>
+    /// Atiende una tarjeta leída (o simulada): con una compra o un pago pendiente la usa para completarlo y
+    /// enciende el LED de pago (PAGO_OK / PAGO_RECHAZADO); fuera de ellos solo informa de quién es y su saldo.
+    /// </summary>
+    /// <param name="uid">UID leído.</param>
+    /// <param name="conexion">Cliente que lo pidió (PAGAR_CON_TARJETA en modo sin hardware), o <c>null</c> si vino del cajero.</param>
+    private void ProcesarLecturaTarjeta(string uid, ConexionCliente? conexion)
+    {
+        InstantaneaJuego instantanea = _juego.ObtenerInstantanea();
+        bool pendiente = instantanea.Estado == EstadoPartida.EnCurso
+                         && (instantanea.Fase == FaseTurno.EsperandoPago || instantanea.Fase == FaseTurno.EsperandoTarjetaCompra);
+        if (!pendiente)
+        {
+            ResultadoAccion consulta = _juego.ConsultarTarjeta(uid);
+            if (conexion != null && !consulta.Exito)
+            {
+                ResponderError(conexion, consulta.Mensaje);
             }
 
-            // Fuera de un pago: solo se informa de quién es la tarjeta y su saldo.
-            AvisarCajero(_juego.ConsultarTarjeta(uid).Mensaje);
+            AvisarCajero(consulta.Mensaje);
+            return;
         }
+
+        ResultadoAccion resultado = _juego.IdentificarTarjeta(uid);
+        _cajero.IndicarPago(resultado.PagoAceptado == true);  // LED: encendido 2 s o 3 parpadeos rápidos
+        if (!resultado.Exito)
+        {
+            if (conexion != null)
+            {
+                ResponderError(conexion, resultado.Mensaje);
+            }
+
+            AvisarCajero(resultado.Mensaje);
+        }
+
+        // También tras un rechazo: por ejemplo, sin saldo para comprar la partida vuelve a "Comprar / No comprar".
+        DifundirCambios();
     }
 
     private void AlCambiarEstadoCajero(EstadoCajero estado)
@@ -686,9 +831,11 @@ public sealed class Servidor : IDisposable
             return;
         }
 
-        AvisarCajero(CajeroFisicoActivo
-            ? $"{_cajero.Descripcion} conectado: el botón tira los dados y se paga con la tarjeta."
-            : "Sin cajero físico: se juega en modo simulado (botones de la pantalla).");
+        AvisarCajero(_modoSinHardware
+            ? "Modo sin hardware (pruebas): el organizador simula el botón y las tarjetas."
+            : CajeroFisicoActivo
+                ? $"{_cajero.Descripcion} conectado: el botón tira los dados y se paga con la tarjeta."
+                : "Cajero desconectado: la partida queda en pausa hasta que se conecte la Pico W.");
         EnviarATodos(CodificarEstado());
     }
 
@@ -826,7 +973,7 @@ public sealed class Servidor : IDisposable
         int[] ids = new int[desconectados.Cantidad];
         int i = 0;
         desconectados.Recorrer(id => ids[i++] = id);
-        return new EstadoRed(instantanea, _idUltimoMovimiento, _ultimasRecorridas, ids, CajeroFisicoActivo);
+        return new EstadoRed(instantanea, _idUltimoMovimiento, _ultimasRecorridas, ids, CajeroFisicoActivo, _modoSinHardware);
     }
 
     private string CodificarFin(InstantaneaJuego instantanea)

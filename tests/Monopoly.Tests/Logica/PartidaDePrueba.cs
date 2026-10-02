@@ -66,6 +66,17 @@ public abstract class PartidaDePrueba : IDisposable
 
     protected static string Uid(int idJugador) => Juego.PrefijoTarjetaVirtual + idJugador;
 
+    /// <summary>
+    /// Compra completa: el jugador elige "Comprar" y luego acerca su propia tarjeta.
+    /// </summary>
+    protected void Comprar(int idJugador)
+    {
+        Ok(Juego.SolicitarCompra(idJugador));
+        Assert.Equal(FaseTurno.EsperandoTarjetaCompra, Juego.Fase);
+        ResultadoAccion compra = Ok(Juego.IdentificarTarjeta(J(idJugador).UidTarjeta!));
+        Assert.True(compra.PagoAceptado);
+    }
+
     protected InstantaneaJuego Estado() => Juego.ConsultarEstado(Ana).Instantanea!;
 
     protected Jugador J(int id) => Juego.ObtenerJugador(id)!;

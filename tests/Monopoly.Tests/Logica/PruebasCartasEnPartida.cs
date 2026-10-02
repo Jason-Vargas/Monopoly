@@ -51,7 +51,7 @@ public class PruebasCartasEnPartida : PartidaDePrueba
         Assert.Equal(2, resultado.Movimientos.Cantidad);
         Assert.Equal(FaseTurno.EsperandoDecisionCompra, Estado().Fase);
         Assert.Equal(11, Estado().IdPropiedadEnVenta);
-        Ok(Juego.ComprarPropiedad(Ana));
+        Comprar(Ana);
         Assert.Equal(1360, Saldo(Ana));
     }
 
@@ -63,7 +63,7 @@ public class PruebasCartasEnPartida : PartidaDePrueba
         Assert.Equal(4, Posicion(Ana));
         Assert.Equal(FaseTurno.EsperandoPago, Estado().Fase);
         Assert.Equal(200, Estado().MontoPagoPendiente);
-        Assert.Equal("Ana debe pagar $200 al banco", Estado().DescripcionPagoPendiente);
+        Assert.Equal("Ana debe pagar ₡200 al banco", Estado().DescripcionPagoPendiente);
 
         Ok(Juego.IdentificarTarjeta(Uid(Ana)));
 

@@ -125,7 +125,8 @@ public abstract class CajeroPorLineas : IDispositivoCajero
         }
         else if (mayusculas.StartsWith(ProtocoloCajero.PrefijoRfid, StringComparison.Ordinal))
         {
-            string uid = mayusculas.Substring(ProtocoloCajero.PrefijoRfid.Length).Trim();
+            // UID normalizado: sin espacios y en mayúsculas.
+            string uid = mayusculas.Substring(ProtocoloCajero.PrefijoRfid.Length).Replace(" ", string.Empty);
             if (ProtocoloCajero.EsUidValido(uid))
             {
                 TarjetaLeida?.Invoke(uid);

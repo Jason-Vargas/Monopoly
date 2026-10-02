@@ -54,7 +54,9 @@ internal static class Program
         servidor.Registro += texto => Escribir("[servidor] " + texto, ConsoleColor.DarkGray);
         servidor.Iniciar();
 
-        Escribir($"Banco de Monopoly escuchando en el puerto {servidor.Puerto}.", ConsoleColor.Green);
+        // Herramienta de depuración sin Pico: los clientes tiran con "t" y pagan/compran con "p" (tarjeta virtual).
+        servidor.EstablecerModoSinHardware(true);
+        Escribir($"Banco de Monopoly escuchando en el puerto {servidor.Puerto} (modo sin hardware).", ConsoleColor.Green);
         Escribir("Los demás jugadores pueden conectarse a:", ConsoleColor.Green);
         Escribir($"  127.0.0.1:{servidor.Puerto} (esta misma computadora)", ConsoleColor.Green);
         Servidor.ObtenerIPv4Locales().Recorrer(ip => Escribir($"  {ip}:{servidor.Puerto}", ConsoleColor.Green));
@@ -171,7 +173,7 @@ internal static class Program
 
     private static void MostrarAyuda()
     {
-        Escribir("Comandos: i=iniciar partida · t=tirar dados · c=comprar · n=no comprar · p=pagar con tarjeta · " +
+        Escribir("Comandos: i=iniciar partida · t=tirar dados · c=comprar (luego p) · n=no comprar · p=pasar tarjeta (pago o compra) · " +
                  "f=terminar turno · e=estado · h [todas|antiguas|recientes|jugador X|tipo T]=historial · " +
                  "x=exportar TXT · q=salir · ?=ayuda. Otra línea se envía tal cual al servidor.", ConsoleColor.DarkYellow);
     }
