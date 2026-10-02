@@ -47,17 +47,33 @@ internal static class Dibujo
     /// <param name="tamanio">Difuminado en píxeles.</param>
     /// <param name="opacidad">Opacidad máxima (0 a 255).</param>
     /// <param name="desplazamientoY">Desplazamiento vertical de la sombra.</param>
+    /// <remarks>
+    /// La forma que proyecta la sombra siempre se pinta opaca encima, así que el interior se excluye del
+    /// recorte: solo se rellena el borde visible (en áreas grandes, como el tablero, es decenas de veces
+    /// más rápido).
+    /// </remarks>
     public static void Sombra(Graphics g, RectangleF area, float radio, int tamanio = 6, int opacidad = 36, float desplazamientoY = 3f)
     {
+        GraphicsState estado = g.Save();
+        float margen = Math.Min(Math.Max(radio, 0f), Math.Min(area.Width, area.Height) / 2f) + 1f;
+        RectangleF interior = RectangleF.Inflate(area, -margen, -margen);
+        if (interior.Width > 0 && interior.Height > 0)
+        {
+            g.SetClip(interior, CombineMode.Exclude);
+        }
+
+        using SolidBrush pincel = new SolidBrush(Color.Empty);
         for (int i = tamanio; i >= 1; i--)
         {
             RectangleF capa = RectangleF.Inflate(area, i * 0.8f, i * 0.8f);
             capa.Offset(0, desplazamientoY);
             int alfa = Math.Max(1, opacidad * (tamanio - i + 1) / (tamanio * tamanio));
             using GraphicsPath camino = Redondeado(capa, radio + i);
-            using SolidBrush pincel = new SolidBrush(Color.FromArgb(alfa, 20, 30, 20));
+            pincel.Color = Color.FromArgb(alfa, 20, 30, 20);
             g.FillPath(pincel, camino);
         }
+
+        g.Restore(estado);
     }
 
     /// <summary>

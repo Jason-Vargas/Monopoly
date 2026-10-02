@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Windows.Forms;
 using Monopoly.App.Estilo;
 using Monopoly.Core.Logica;
@@ -20,12 +21,19 @@ namespace Monopoly.App;
 /// <remarks>
 /// Geometría: el lado mide 13 unidades; cada esquina ocupa 2×2 y cada casilla 1×2. Cada casilla se dibuja
 /// en un sistema local (franja hacia el centro del tablero) y se gira 0°, 90°, 180° o 270° según su lado.
+/// Rendimiento: los rectángulos de las casillas se precalculan al cambiar el tamaño; la parte estática se
+/// guarda en dos imágenes (la base, que solo cambia con el tamaño, y el fondo, que se regenera con cada
+/// estado o aviso) y encima se dibujan los dados, el resaltado del cursor, las fichas y la tarjeta
+/// (<see cref="TarjetaCasilla"/>). El mouse solo repinta al cambiar de casilla y las animaciones invalidan
+/// únicamente su zona.
 /// </remarks>
 internal sealed class PanelTablero : Control
 {
     private const float Unidades = 13f;
     private const int MaximoIdJugador = 8;
     private const int DuracionDadosMs = 650;
+    private const int RetrasoTarjetaMs = 150;
+    private const int CantidadCasillas = 40;
 
     private static readonly Color ColorCasualidad = Color.FromArgb(236, 140, 50);
     private static readonly Color ColorArca = Color.FromArgb(96, 170, 222);
@@ -34,13 +42,43 @@ internal sealed class PanelTablero : Control
     private readonly int[] _posiciones = new int[MaximoIdJugador + 1];
     private readonly Timer _temporizador = new Timer { Interval = 170 };
     private readonly Timer _temporizadorDados = new Timer { Interval = 30 };
+    private readonly Timer _temporizadorTarjeta = new Timer { Interval = RetrasoTarjetaMs };
     private readonly Random _azar = new Random();
+    private readonly TarjetaCasilla _tarjeta = new TarjetaCasilla();
+
+    // Geometría precalculada al cambiar de tamaño: área del tablero, unidad y rectángulo de cada casilla.
+    private readonly RectangleF[] _rectCasillas = new RectangleF[CantidadCasillas];
+    private RectangleF _areaTablero;
+    private RectangleF _centro;
+    private Rectangle _zonaDados;
+    private float _u;
+
+    // Imágenes en caché y recursos reutilizados. La base (mesa, sombra, esquinas, logotipo y mazos) solo
+    // cambia con el tamaño; el fondo agrega lo que depende del estado (dueños, turno y aviso).
+    private readonly Font?[] _fuentesNombre = new Font?[CantidadCasillas];
+    private readonly SolidBrush _fondoCasilla = new SolidBrush(Tema.VerdeMentaClaro);
+    private readonly SolidBrush _tinta = new SolidBrush(Tema.Tinta);
+    private readonly SolidBrush _brilloCursor = new SolidBrush(Color.FromArgb(60, 255, 255, 255));
+    private readonly SolidBrush _brilloTurno = new SolidBrush(Color.FromArgb(150, Tema.Dorado));
+    private readonly SolidBrush _verdeProfundo = new SolidBrush(Tema.VerdeProfundo);
+    private readonly StringFormat _centrado = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+    private readonly StringFormat _arriba = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Near, Trimming = StringTrimming.EllipsisWord };
+    private readonly StringFormat _abajo = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Far };
+    private Bitmap? _base;
+    private Bitmap? _fondo;
+    private bool _fondoValido;
+    private Font? _fuenteDetalle;
+    private Font? _fuenteDados;
+    private Pen? _lineaCasilla;
+    private Pen? _bordeCursor;
+
     private EstadoRed? _estado;
     private int _idAnimado;
     private int[] _ruta = new int[0];
     private int _paso;
     private int _casillaBajoCursor = -1;
-    private Point _cursor;
+    private int _casillaTarjeta = -1;
+    private Rectangle _rectTarjeta;
     private string _aviso = string.Empty;
     private long _inicioDados;
 
@@ -60,8 +98,15 @@ internal sealed class PanelTablero : Control
                 _temporizadorDados.Stop();
             }
 
-            Invalidate();
+            // Solo la zona de los dados: el resto del tablero no cambia mientras giran.
+            Invalidate(_zonaDados);
         };
+        _temporizadorTarjeta.Tick += (s, e) =>
+        {
+            _temporizadorTarjeta.Stop();
+            MostrarTarjeta();
+        };
+        RecalcularGeometria();
     }
 
     /// <summary>
@@ -81,7 +126,7 @@ internal sealed class PanelTablero : Control
             if (nuevo != _aviso)
             {
                 _aviso = nuevo;
-                Invalidate();
+                InvalidarFondo();
             }
         }
     }
@@ -124,7 +169,13 @@ internal sealed class PanelTablero : Control
             _temporizador.Start();
         }
 
-        Invalidate();
+        // Cambiaron los dueños, el turno o la propiedad en venta: se regenera la imagen estática.
+        if (_casillaTarjeta >= 0)
+        {
+            PrepararTarjeta(_casillaTarjeta);
+        }
+
+        InvalidarFondo();
     }
 
     /// <inheritdoc/>
@@ -134,9 +185,28 @@ internal sealed class PanelTablero : Control
         {
             _temporizador.Dispose();
             _temporizadorDados.Dispose();
+            _temporizadorTarjeta.Dispose();
+            _tarjeta.Dispose();
+            LiberarRecursosDeTamanio();
+            _fondoCasilla.Dispose();
+            _tinta.Dispose();
+            _brilloCursor.Dispose();
+            _brilloTurno.Dispose();
+            _verdeProfundo.Dispose();
+            _centrado.Dispose();
+            _arriba.Dispose();
+            _abajo.Dispose();
         }
 
         base.Dispose(disposing);
+    }
+
+    /// <inheritdoc/>
+    protected override void OnSizeChanged(EventArgs e)
+    {
+        base.OnSizeChanged(e);
+        OcultarTarjeta();
+        RecalcularGeometria();
     }
 
     /// <inheritdoc/>
@@ -144,79 +214,193 @@ internal sealed class PanelTablero : Control
     {
         base.OnMouseMove(e);
         int casilla = CasillaEn(e.Location);
-        bool cambio = casilla != _casillaBajoCursor || (casilla >= 0 && e.Location != _cursor);
-        _cursor = e.Location;
-        if (cambio)
+        if (casilla == _casillaBajoCursor)
         {
-            _casillaBajoCursor = casilla;
-            Invalidate();
+            // Sigue sobre la misma casilla: no hay nada que redibujar.
+            return;
         }
+
+        CambiarCasillaBajoCursor(casilla);
     }
 
     /// <inheritdoc/>
     protected override void OnMouseLeave(EventArgs e)
     {
         base.OnMouseLeave(e);
-        if (_casillaBajoCursor >= 0)
-        {
-            _casillaBajoCursor = -1;
-            Invalidate();
-        }
+        CambiarCasillaBajoCursor(-1);
     }
 
     /// <inheritdoc/>
     protected override void OnPaint(PaintEventArgs e)
     {
         Graphics g = e.Graphics;
+        Rectangle recorte = e.ClipRectangle;
+        if (!_fondoValido || _fondo == null)
+        {
+            GenerarFondo();
+        }
+
+        // La parte estática sale de la imagen en caché: solo se copia la región que hay que repintar.
+        g.CompositingMode = CompositingMode.SourceCopy;
+        g.InterpolationMode = InterpolationMode.NearestNeighbor;
+        g.DrawImage(_fondo!, recorte, recorte, GraphicsUnit.Pixel);
+        g.CompositingMode = CompositingMode.SourceOver;
         Dibujo.Calidad(g);
-        using (LinearGradientBrush mesa = new LinearGradientBrush(ClientRectangle, Color.FromArgb(36, 96, 66), Color.FromArgb(18, 58, 40), 90f))
+
+        if (recorte.IntersectsWith(_zonaDados))
         {
-            g.FillRectangle(mesa, ClientRectangle);
+            DibujarDados(g);
         }
 
-        RectangleF tablero = AreaTablero();
-        float u = tablero.Width / Unidades;
-
-        Dibujo.Sombra(g, tablero, u * 0.1f, 10, 90, u * 0.12f);
-        using (SolidBrush fondo = new SolidBrush(Tema.VerdeMenta))
-        {
-            g.FillRectangle(fondo, tablero);
-        }
-
-        using Pen linea = new Pen(Color.FromArgb(40, 54, 44), Math.Max(u * 0.02f, 1f));
-        for (int i = 0; i < _tablero.Cantidad; i++)
-        {
-            RectangleF area = RectCasilla(tablero, i);
-            if (i % 10 == 0)
-            {
-                DibujarEsquina(g, i, area, u, linea);
-            }
-            else
-            {
-                DibujarCasilla(g, i, area, u, linea);
-            }
-        }
-
-        DibujarCentro(g, new RectangleF(tablero.X + (2 * u), tablero.Y + (2 * u), 9 * u, 9 * u), u);
-        using (Pen borde = new Pen(Color.FromArgb(30, 40, 34), Math.Max(u * 0.05f, 1.5f)))
-        {
-            g.DrawRectangle(borde, tablero.X, tablero.Y, tablero.Width, tablero.Height);
-            g.DrawRectangle(borde, tablero.X + (2 * u), tablero.Y + (2 * u), 9 * u, 9 * u);
-        }
-
-        DibujarFichas(g, tablero, u);
         if (_casillaBajoCursor >= 0)
         {
-            DibujarTarjetaTitulo(g, _casillaBajoCursor, u);
+            DibujarResaltadoCursor(g, _casillaBajoCursor);
         }
+
+        DibujarFichas(g, recorte);
+        if (_casillaTarjeta >= 0 && recorte.IntersectsWith(_rectTarjeta))
+        {
+            _tarjeta.Dibujar(g, _rectTarjeta.Location);
+        }
+    }
+
+    // ------------------------------------------------------------------ caché de la parte estática
+
+    /// <summary>
+    /// Marca la imagen estática como desactualizada y repinta el tablero (al llegar un estado nuevo o
+    /// cambiar el aviso).
+    /// </summary>
+    private void InvalidarFondo()
+    {
+        _fondoValido = false;
+        Invalidate();
+    }
+
+    /// <summary>
+    /// Dibuja en la imagen en caché todo lo que no cambia con el mouse ni con las animaciones: copia la base
+    /// y le agrega las casillas con sus dueños, el turno, el aviso y los bordes.
+    /// </summary>
+    private void GenerarFondo()
+    {
+        Size tamanio = new Size(Math.Max(ClientSize.Width, 1), Math.Max(ClientSize.Height, 1));
+        if (_base == null || _base.Size != tamanio)
+        {
+            _base?.Dispose();
+            _base = new Bitmap(tamanio.Width, tamanio.Height, PixelFormat.Format32bppPArgb);
+            GenerarBase(_base);
+        }
+
+        if (_fondo == null || _fondo.Size != tamanio)
+        {
+            _fondo?.Dispose();
+            _fondo = new Bitmap(tamanio.Width, tamanio.Height, PixelFormat.Format32bppPArgb);
+        }
+
+        using Graphics g = Graphics.FromImage(_fondo);
+        g.CompositingMode = CompositingMode.SourceCopy;
+        g.DrawImageUnscaled(_base, 0, 0);
+        g.CompositingMode = CompositingMode.SourceOver;
+        Dibujo.Calidad(g);
+
+        float u = _u;
+        for (int i = 0; i < _tablero.Cantidad; i++)
+        {
+            if (i % 10 != 0)
+            {
+                DibujarCasilla(g, i, _rectCasillas[i], u, _lineaCasilla!);
+            }
+        }
+
+        DibujarTurnoYAviso(g, _centro, u);
+        using (Pen borde = new Pen(Color.FromArgb(30, 40, 34), Math.Max(u * 0.05f, 1.5f)))
+        {
+            g.DrawRectangle(borde, _areaTablero.X, _areaTablero.Y, _areaTablero.Width, _areaTablero.Height);
+            g.DrawRectangle(borde, _centro.X, _centro.Y, _centro.Width, _centro.Height);
+        }
+
+        _fondoValido = true;
+    }
+
+    /// <summary>
+    /// Parte que solo depende del tamaño: la mesa, la sombra del tablero, las cuatro esquinas, el
+    /// logotipo y los mazos.
+    /// </summary>
+    private void GenerarBase(Bitmap imagen)
+    {
+        using Graphics g = Graphics.FromImage(imagen);
+        Dibujo.Calidad(g);
+        Rectangle todo = new Rectangle(Point.Empty, imagen.Size);
+        using (LinearGradientBrush mesa = new LinearGradientBrush(todo, Color.FromArgb(36, 96, 66), Color.FromArgb(18, 58, 40), 90f))
+        {
+            g.FillRectangle(mesa, todo);
+        }
+
+        float u = _u;
+        Dibujo.Sombra(g, _areaTablero, u * 0.1f, 10, 90, u * 0.12f);
+        using (SolidBrush fondo = new SolidBrush(Tema.VerdeMenta))
+        {
+            g.FillRectangle(fondo, _areaTablero);
+        }
+
+        for (int i = 0; i < _tablero.Cantidad; i += 10)
+        {
+            DibujarEsquina(g, i, _rectCasillas[i], u, _lineaCasilla!);
+        }
+
+        DibujarLogotipoYMazos(g, _centro, u);
     }
 
     // ------------------------------------------------------------------ geometría
 
-    private RectangleF AreaTablero()
+    /// <summary>
+    /// Precalcula el área del tablero, la unidad, el rectángulo de las 40 casillas y la zona de los dados,
+    /// y recrea los recursos que dependen del tamaño. Se llama solo al cambiar el tamaño del control.
+    /// </summary>
+    private void RecalcularGeometria()
     {
         float lado = Math.Max(Math.Min(ClientSize.Width, ClientSize.Height) - 28f, 130f);
-        return new RectangleF((ClientSize.Width - lado) / 2f, (ClientSize.Height - lado) / 2f, lado, lado);
+        _areaTablero = new RectangleF((ClientSize.Width - lado) / 2f, (ClientSize.Height - lado) / 2f, lado, lado);
+        _u = lado / Unidades;
+        float u = _u;
+        for (int i = 0; i < CantidadCasillas; i++)
+        {
+            _rectCasillas[i] = RectCasilla(_areaTablero, i);
+        }
+
+        _centro = new RectangleF(_areaTablero.X + (2 * u), _areaTablero.Y + (2 * u), 9 * u, 9 * u);
+
+        // Dados girados (hasta ~0,75 de su lado desde el centro) y la línea de texto de la tirada.
+        float yDados = _centro.Y + (u * 5.6f);
+        _zonaDados = Rectangle.Ceiling(new RectangleF(_centro.X, yDados - (u * 0.8f), _centro.Width, u * 1.55f));
+        _zonaDados.Inflate(2, 2);
+
+        LiberarRecursosDeTamanio();
+        _fuenteDetalle = new Font(Fuentes.Texto, Math.Max(u * 0.15f, 5f), FontStyle.Bold, GraphicsUnit.Pixel);
+        _fuenteDados = new Font(Fuentes.Texto, Math.Max(u * 0.26f, 8f), FontStyle.Bold, GraphicsUnit.Pixel);
+        _lineaCasilla = new Pen(Color.FromArgb(40, 54, 44), Math.Max(u * 0.02f, 1f));
+        _bordeCursor = new Pen(Tema.Rojo, Math.Max(u * 0.04f, 1.5f));
+        _fondoValido = false;
+    }
+
+    /// <summary>
+    /// Libera las fuentes, los lápices y la imagen que dependen del tamaño del tablero.
+    /// </summary>
+    private void LiberarRecursosDeTamanio()
+    {
+        for (int i = 0; i < _fuentesNombre.Length; i++)
+        {
+            _fuentesNombre[i]?.Dispose();
+            _fuentesNombre[i] = null;
+        }
+
+        _fuenteDetalle?.Dispose();
+        _fuenteDados?.Dispose();
+        _lineaCasilla?.Dispose();
+        _bordeCursor?.Dispose();
+        _fondo?.Dispose();
+        _fondo = null;
+        _base?.Dispose();
+        _base = null;
     }
 
     /// <summary>
@@ -275,18 +459,126 @@ internal sealed class PanelTablero : Control
         return indice < 10 ? 0f : indice < 20 ? 90f : indice < 30 ? 180f : 270f;
     }
 
+    /// <summary>
+    /// Casilla bajo un punto, con los rectángulos precalculados (sin recorrer la lista del tablero).
+    /// </summary>
     private int CasillaEn(Point punto)
     {
-        RectangleF tablero = AreaTablero();
-        for (int i = 0; i < _tablero.Cantidad; i++)
+        if (!_areaTablero.Contains(punto) || _centro.Contains(punto))
         {
-            if (RectCasilla(tablero, i).Contains(punto))
+            return -1;
+        }
+
+        for (int i = 0; i < CantidadCasillas; i++)
+        {
+            if (_rectCasillas[i].Contains(punto))
             {
                 return i;
             }
         }
 
         return -1;
+    }
+
+    /// <summary>
+    /// Región a repintar de una casilla, con margen para el brillo de las fichas que sobresale un poco.
+    /// </summary>
+    private void InvalidarCasilla(int indice)
+    {
+        if (indice < 0 || indice >= CantidadCasillas)
+        {
+            return;
+        }
+
+        RectangleF area = RectangleF.Inflate(_rectCasillas[indice], _u * 0.3f, _u * 0.3f);
+        Invalidate(Rectangle.Ceiling(area));
+    }
+
+    // ------------------------------------------------------------------ cursor y tarjeta de información
+
+    /// <summary>
+    /// El cursor pasó a otra casilla (o salió): se repintan solo la casilla anterior, la nueva y la tarjeta,
+    /// y la tarjeta de la nueva casilla aparece tras un breve retraso para que no parpadee al mover el
+    /// mouse rápido por el tablero.
+    /// </summary>
+    private void CambiarCasillaBajoCursor(int casilla)
+    {
+        if (casilla == _casillaBajoCursor)
+        {
+            return;
+        }
+
+        _temporizadorTarjeta.Stop();
+        OcultarTarjeta();
+        InvalidarCasilla(_casillaBajoCursor);
+        _casillaBajoCursor = casilla;
+        InvalidarCasilla(casilla);
+        if (casilla >= 0)
+        {
+            _temporizadorTarjeta.Start();
+        }
+    }
+
+    /// <summary>
+    /// Muestra la tarjeta de la casilla bajo el cursor, junto a él y sin salirse del control.
+    /// </summary>
+    private void MostrarTarjeta()
+    {
+        if (_casillaBajoCursor < 0 || IsDisposed)
+        {
+            return;
+        }
+
+        PrepararTarjeta(_casillaBajoCursor);
+        Size imagen = _tarjeta.Tamanio;
+        int margen = TarjetaCasilla.Margen;
+        int ancho = imagen.Width - (2 * margen);
+        int alto = imagen.Height - (2 * margen);
+
+        // Abajo a la derecha del cursor; si no cabe, se pone arriba.
+        Point cursor = PointToClient(Cursor.Position);
+        int x = Math.Min(cursor.X + 18, ClientSize.Width - ancho - 8);
+        int y = Math.Min(cursor.Y + 18, ClientSize.Height - alto - 8);
+        if (x < cursor.X && y < cursor.Y + 18)
+        {
+            y = Math.Max(8, cursor.Y - alto - 12);
+        }
+
+        _rectTarjeta = new Rectangle(x - margen, y - margen + 4, imagen.Width, imagen.Height);
+        Invalidate(_rectTarjeta);
+    }
+
+    /// <summary>
+    /// Vuelve a dibujar el contenido de la tarjeta (única) para una casilla, con el último estado.
+    /// </summary>
+    private void PrepararTarjeta(int indice)
+    {
+        _casillaTarjeta = indice;
+        _tarjeta.Preparar(_tablero.ObtenerCasilla(indice), _tablero.BuscarPropiedad(indice), _estado, _u);
+        Invalidate(_rectTarjeta);
+    }
+
+    private void OcultarTarjeta()
+    {
+        if (_casillaTarjeta >= 0)
+        {
+            _casillaTarjeta = -1;
+            Invalidate(_rectTarjeta);
+        }
+    }
+
+    /// <summary>
+    /// Resaltado de la casilla bajo el cursor, dibujado encima de la imagen estática.
+    /// </summary>
+    private void DibujarResaltadoCursor(Graphics g, int indice)
+    {
+        RectangleF area = _rectCasillas[indice];
+        if (indice % 10 != 0)
+        {
+            g.FillRectangle(_brilloCursor, area);
+        }
+
+        g.DrawRectangle(_bordeCursor!, area.X, area.Y, area.Width, area.Height);
     }
 
     // ------------------------------------------------------------------ casillas
@@ -302,10 +594,7 @@ internal sealed class PanelTablero : Control
         g.RotateTransform(AnguloLado(indice));
         RectangleF local = new RectangleF(-u / 2f, -u, u, 2 * u);
 
-        using (SolidBrush fondo = new SolidBrush(Tema.VerdeMentaClaro))
-        {
-            g.FillRectangle(fondo, local);
-        }
+        g.FillRectangle(_fondoCasilla, local);
 
         bool tieneFranja = propiedad != null && Paleta.TieneFranja(propiedad.Grupo);
         float alturaFranja = u * 0.44f;
@@ -324,13 +613,9 @@ internal sealed class PanelTablero : Control
         // Nombre centrado.
         float alturaNombre = tieneFranja ? u * 0.74f : u * 0.5f;
         string nombre = Paleta.NombreCorto(casilla.Nombre).ToUpperInvariant();
-        using (Font fuenteNombre = FuenteQueQuepa(g, nombre, Math.Max(u * 0.155f, 5f), local.Width - (u * 0.08f)))
-        using (SolidBrush tinta = new SolidBrush(Tema.Tinta))
-        using (StringFormat centrado = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Near, Trimming = StringTrimming.EllipsisWord })
-        {
-            g.DrawString(nombre, fuenteNombre, tinta,
-                new RectangleF(local.X + (u * 0.03f), yNombre, local.Width - (u * 0.06f), alturaNombre), centrado);
-        }
+        _fuentesNombre[indice] ??= FuenteQueQuepa(g, nombre, Math.Max(u * 0.155f, 5f), local.Width - (u * 0.08f));
+        g.DrawString(nombre, _fuentesNombre[indice]!, _tinta,
+            new RectangleF(local.X + (u * 0.03f), yNombre, local.Width - (u * 0.06f), alturaNombre), _arriba);
 
         // Ícono de ferrocarriles, servicios, impuestos y cartas, entre el nombre y el precio.
         if (!tieneFranja)
@@ -341,13 +626,8 @@ internal sealed class PanelTablero : Control
 
         // Precio (o detalle) abajo, hacia el borde exterior.
         float alturaMarcador = dueno.HasValue ? u * 0.16f : 0f;
-        using (Font fuenteDetalle = new Font(Fuentes.Texto, Math.Max(u * 0.15f, 5f), FontStyle.Bold, GraphicsUnit.Pixel))
-        using (SolidBrush tinta = new SolidBrush(Tema.Tinta))
-        using (StringFormat abajo = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Far })
-        {
-            g.DrawString(casilla.Detalle, fuenteDetalle, tinta,
-                new RectangleF(local.X, local.Bottom - alturaMarcador - (u * 0.44f), local.Width, u * 0.4f), abajo);
-        }
+        g.DrawString(casilla.Detalle, _fuenteDetalle!, _tinta,
+            new RectangleF(local.X, local.Bottom - alturaMarcador - (u * 0.44f), local.Width, u * 0.4f), _abajo);
 
         // Marcador del dueño: banda de su color en el borde exterior.
         if (dueno.HasValue)
@@ -361,7 +641,7 @@ internal sealed class PanelTablero : Control
         }
 
         g.DrawRectangle(linea, local.X, local.Y, local.Width, local.Height);
-        DibujarResaltados(g, indice, local, u);
+        DibujarResaltadoVenta(g, indice, local, u);
         g.Restore(guardado);
     }
 
@@ -392,21 +672,17 @@ internal sealed class PanelTablero : Control
         return fuente;
     }
 
-    private void DibujarResaltados(Graphics g, int indice, RectangleF local, float u)
+    /// <summary>
+    /// Borde dorado de la propiedad que se está ofreciendo en venta (parte de la imagen estática; el
+    /// resaltado del cursor se dibuja aparte, encima).
+    /// </summary>
+    private void DibujarResaltadoVenta(Graphics g, int indice, RectangleF local, float u)
     {
         if (_estado?.Instantanea.IdPropiedadEnVenta == indice)
         {
             float grosor = Math.Max(u * 0.07f, 2f);
             using Pen resaltado = new Pen(Tema.Dorado, grosor);
             g.DrawRectangle(resaltado, local.X + (grosor / 2f), local.Y + (grosor / 2f), local.Width - grosor, local.Height - grosor);
-        }
-
-        if (indice == _casillaBajoCursor)
-        {
-            using SolidBrush brillo = new SolidBrush(Color.FromArgb(60, 255, 255, 255));
-            g.FillRectangle(brillo, local);
-            using Pen borde = new Pen(Tema.Rojo, Math.Max(u * 0.04f, 1.5f));
-            g.DrawRectangle(borde, local.X, local.Y, local.Width, local.Height);
         }
     }
 
@@ -455,10 +731,7 @@ internal sealed class PanelTablero : Control
     private void DibujarEsquina(Graphics g, int indice, RectangleF area, float u, Pen linea)
     {
         Casilla casilla = _tablero.ObtenerCasilla(indice);
-        using (SolidBrush fondo = new SolidBrush(Tema.VerdeMentaClaro))
-        {
-            g.FillRectangle(fondo, area);
-        }
+        g.FillRectangle(_fondoCasilla, area);
 
         bool esSalida = indice == Tablero.IndiceSalida;
         GraphicsState guardado = g.Save();
@@ -505,16 +778,11 @@ internal sealed class PanelTablero : Control
         }
 
         g.DrawRectangle(linea, area.X, area.Y, area.Width, area.Height);
-        if (indice == _casillaBajoCursor)
-        {
-            using Pen borde = new Pen(Tema.Rojo, Math.Max(u * 0.04f, 1.5f));
-            g.DrawRectangle(borde, area.X, area.Y, area.Width, area.Height);
-        }
     }
 
     // ------------------------------------------------------------------ centro
 
-    private void DibujarCentro(Graphics g, RectangleF centro, float u)
+    private static void DibujarLogotipoYMazos(Graphics g, RectangleF centro, float u)
     {
         // Logotipo propio en diagonal, en la mitad superior izquierda.
         GraphicsState guardado = g.Save();
@@ -526,40 +794,13 @@ internal sealed class PanelTablero : Control
         // Mazos en sus espacios marcados.
         DibujarMazo(g, new RectangleF(centro.X + (u * 5.35f), centro.Y + (u * 0.4f), u * 3.2f, u * 2.05f), "CASUALIDAD", ColorCasualidad, -5f, u, true);
         DibujarMazo(g, new RectangleF(centro.X + (u * 5.35f), centro.Y + (u * 2.65f), u * 3.2f, u * 2.05f), "ARCA COMUNAL", ColorArca, 4f, u, false);
+    }
 
-        // Dados (giran un momento al llegar una tirada nueva).
-        TiradaDados? tirada = _estado?.Instantanea.UltimaTirada;
-        float lado = u * 1.05f;
-        float yDados = centro.Y + (u * 5.6f);
-        long transcurrido = Environment.TickCount64 - _inicioDados;
-        bool girando = _temporizadorDados.Enabled && transcurrido < DuracionDadosMs;
-        float giro = girando ? (1f - (transcurrido / (float)DuracionDadosMs)) * 360f : 0f;
-        if (tirada.HasValue)
-        {
-            int cara1 = girando ? _azar.Next(1, 7) : tirada.Value.Dado1;
-            int cara2 = girando ? _azar.Next(1, 7) : tirada.Value.Dado2;
-            DibujoDado.Dibujar(g, new PointF(centro.X + (u * 3.85f), yDados), lado, -8f + giro, cara1);
-            DibujoDado.Dibujar(g, new PointF(centro.X + (u * 5.15f), yDados), lado, 9f - giro, cara2);
-        }
-        else
-        {
-            DibujarHuecoDado(g, new PointF(centro.X + (u * 3.85f), yDados), lado);
-            DibujarHuecoDado(g, new PointF(centro.X + (u * 5.15f), yDados), lado);
-        }
-
-        using StringFormat centrado = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-        string textoDados = "Aún no se han lanzado los dados";
-        if (tirada.HasValue && _estado?.IdJugadorUltimoMovimiento is int idTiro)
-        {
-            textoDados = girando ? "Lanzando los dados..." : $"{NombreDeJugador(idTiro)} sacó {tirada.Value.Dado1} + {tirada.Value.Dado2} = {tirada.Value.Total}";
-        }
-
-        using (Font fuenteDados = new Font(Fuentes.Texto, Math.Max(u * 0.26f, 8f), FontStyle.Bold, GraphicsUnit.Pixel))
-        using (SolidBrush verde = new SolidBrush(Tema.VerdeProfundo))
-        {
-            g.DrawString(textoDados, fuenteDados, verde, new RectangleF(centro.X, centro.Y + (u * 6.25f), centro.Width, u * 0.45f), centrado);
-        }
-
+    /// <summary>
+    /// Quién tiene el turno y el aviso de lo que se espera (dependen del estado).
+    /// </summary>
+    private void DibujarTurnoYAviso(Graphics g, RectangleF centro, float u)
+    {
         if (_estado != null && _estado.Instantanea.IdJugadorEnTurno is int enTurno && _estado.Instantanea.Estado == EstadoPartida.EnCurso)
         {
             EstadoJugador? jugador = _estado.BuscarJugador(enTurno);
@@ -595,6 +836,41 @@ internal sealed class PanelTablero : Control
             using Font fuenteAviso = new Font(Fuentes.Texto, Math.Max(u * 0.24f, 8f), FontStyle.Bold, GraphicsUnit.Pixel);
             Dibujo.TextoCentrado(g, _aviso, fuenteAviso, Tema.RojoPresionado, RectangleF.Inflate(recuadro, -u * 0.18f, -u * 0.06f));
         }
+    }
+
+    /// <summary>
+    /// Dados y texto de la última tirada. Van encima de la imagen estática porque giran un momento al
+    /// llegar una tirada nueva; mientras giran solo se repinta su zona.
+    /// </summary>
+    private void DibujarDados(Graphics g)
+    {
+        TiradaDados? tirada = _estado?.Instantanea.UltimaTirada;
+        float u = _u;
+        float lado = u * 1.05f;
+        float yDados = _centro.Y + (u * 5.6f);
+        long transcurrido = Environment.TickCount64 - _inicioDados;
+        bool girando = _temporizadorDados.Enabled && transcurrido < DuracionDadosMs;
+        float giro = girando ? (1f - (transcurrido / (float)DuracionDadosMs)) * 360f : 0f;
+        if (tirada.HasValue)
+        {
+            int cara1 = girando ? _azar.Next(1, 7) : tirada.Value.Dado1;
+            int cara2 = girando ? _azar.Next(1, 7) : tirada.Value.Dado2;
+            DibujoDado.Dibujar(g, new PointF(_centro.X + (u * 3.85f), yDados), lado, -8f + giro, cara1);
+            DibujoDado.Dibujar(g, new PointF(_centro.X + (u * 5.15f), yDados), lado, 9f - giro, cara2);
+        }
+        else
+        {
+            DibujarHuecoDado(g, new PointF(_centro.X + (u * 3.85f), yDados), lado);
+            DibujarHuecoDado(g, new PointF(_centro.X + (u * 5.15f), yDados), lado);
+        }
+
+        string textoDados = "Aún no se han lanzado los dados";
+        if (tirada.HasValue && _estado?.IdJugadorUltimoMovimiento is int idTiro)
+        {
+            textoDados = girando ? "Lanzando los dados..." : $"{NombreDeJugador(idTiro)} sacó {tirada.Value.Dado1} + {tirada.Value.Dado2} = {tirada.Value.Total}";
+        }
+
+        g.DrawString(textoDados, _fuenteDados!, _verdeProfundo, new RectangleF(_centro.X, _centro.Y + (u * 6.25f), _centro.Width, u * 0.45f), _centrado);
     }
 
     private static void DibujarHuecoDado(Graphics g, PointF centro, float lado)
@@ -664,8 +940,9 @@ internal sealed class PanelTablero : Control
 
     // ------------------------------------------------------------------ fichas
 
-    private void DibujarFichas(Graphics g, RectangleF tablero, float u)
+    private void DibujarFichas(Graphics g, Rectangle recorte)
     {
+        float u = _u;
         if (_estado == null)
         {
             return;
@@ -692,17 +969,21 @@ internal sealed class PanelTablero : Control
             }
 
             int posicion = _posiciones[jugador.Id];
-            RectangleF casilla = RectCasilla(tablero, posicion);
+            RectangleF casilla = _rectCasillas[posicion];
             PointF exterior = HaciaElBorde(posicion, u * 0.28f);
             PointF desplazamiento = Reparto(cantidadEn[posicion], colocadasEn[posicion]++, u * 0.26f);
             float cx = casilla.X + (casilla.Width / 2f) + exterior.X + desplazamiento.X;
             float cy = casilla.Y + (casilla.Height / 2f) + exterior.Y + desplazamiento.Y;
             RectangleF ficha = new RectangleF(cx - (diametro / 2f), cy - (diametro / 2f), diametro, diametro);
+            RectangleF conBrillo = RectangleF.Inflate(ficha, diametro * 0.2f, diametro * 0.2f);
+            if (!recorte.IntersectsWith(Rectangle.Ceiling(conBrillo)))
+            {
+                continue;
+            }
 
             if (_estado.Instantanea.IdJugadorEnTurno == jugador.Id)
             {
-                using SolidBrush brillo = new SolidBrush(Color.FromArgb(150, Tema.Dorado));
-                g.FillEllipse(brillo, RectangleF.Inflate(ficha, diametro * 0.2f, diametro * 0.2f));
+                g.FillEllipse(_brilloTurno, conBrillo);
             }
 
             DibujoFicha.DibujarEnDisco(g, jugador.FormaFicha, ficha, ColorDeJugador(jugador.Id));
@@ -754,8 +1035,7 @@ internal sealed class PanelTablero : Control
     {
         if (_paso < _ruta.Length)
         {
-            _posiciones[_idAnimado] = _ruta[_paso++];
-            Invalidate();
+            MoverFicha(_idAnimado, _ruta[_paso++]);
             return;
         }
 
@@ -766,129 +1046,26 @@ internal sealed class PanelTablero : Control
             {
                 if (jugador.Id <= MaximoIdJugador)
                 {
-                    _posiciones[jugador.Id] = jugador.Posicion;
+                    MoverFicha(jugador.Id, jugador.Posicion);
                 }
             }
         }
-
-        Invalidate();
     }
 
-    // ------------------------------------------------------------------ tarjeta de título
-
     /// <summary>
-    /// Tarjeta de título junto al cursor: franja de color, nombre, precio, alquiler y dueño. En las casillas
-    /// que no son propiedades muestra su categoría y su detalle.
+    /// Cambia la casilla donde se dibuja una ficha y repinta solo la casilla que deja y la nueva.
     /// </summary>
-    private void DibujarTarjetaTitulo(Graphics g, int indice, float u)
+    private void MoverFicha(int idJugador, int posicion)
     {
-        Casilla casilla = _tablero.ObtenerCasilla(indice);
-        Propiedad? propiedad = _tablero.BuscarPropiedad(indice);
-        using Font pequenia = Tema.Texto(7f, FontStyle.Bold);
-        using Font titulo = Tema.Texto(10.5f, FontStyle.Bold);
-        using Font normal = Tema.Texto(9.5f);
-        using Font negrita = Tema.Texto(9.5f, FontStyle.Bold);
-        float linea = normal.GetHeight(g) + 6;
-        float ancho = Math.Max(300f, u * 3.6f);
-        float altoFranja = pequenia.GetHeight(g) + (titulo.GetHeight(g) * 2) + 14;
-        int filas = propiedad == null ? 2 : propiedad.Grupo == GrupoPropiedad.Ferrocarril || propiedad.Grupo == GrupoPropiedad.Servicio ? 3 : 2;
-        float alto = propiedad == null ? altoFranja + (linea * 2) + 28 : altoFranja + (linea * filas) + linea + 46;
-
-        float x = Math.Min(_cursor.X + 18f, ClientSize.Width - ancho - 8f);
-        float y = Math.Min(_cursor.Y + 18f, ClientSize.Height - alto - 8f);
-        if (x < _cursor.X && y < _cursor.Y + 18f)
+        int anterior = _posiciones[idJugador];
+        if (anterior == posicion)
         {
-            y = Math.Max(8f, _cursor.Y - alto - 12f);
-        }
-
-        RectangleF tarjeta = new RectangleF(x, y, ancho, alto);
-        Dibujo.Sombra(g, tarjeta, 12, 7, 70, 4f);
-        using (GraphicsPath forma = Dibujo.Redondeado(tarjeta, 12))
-        {
-            using SolidBrush fondo = new SolidBrush(Color.White);
-            g.FillPath(fondo, forma);
-            using Pen borde = new Pen(Tema.Tinta, 1.6f);
-            g.DrawPath(borde, forma);
-        }
-
-        RectangleF franja = new RectangleF(tarjeta.X + 10, tarjeta.Y + 10, tarjeta.Width - 20, altoFranja);
-        RectangleF zonaEtiqueta = new RectangleF(franja.X, franja.Y + 6, franja.Width, pequenia.GetHeight(g));
-        RectangleF zonaNombre = new RectangleF(franja.X + 6, zonaEtiqueta.Bottom, franja.Width - 12, franja.Bottom - zonaEtiqueta.Bottom - 4);
-        if (propiedad == null)
-        {
-            using (SolidBrush fondoFranja = new SolidBrush(Tema.Crema))
-            {
-                g.FillRectangle(fondoFranja, franja);
-            }
-
-            Dibujo.TextoCentrado(g, casilla.Categoria.ToUpperInvariant(), pequenia, Tema.TintaSuave, zonaEtiqueta);
-            Dibujo.TextoCentrado(g, casilla.Nombre, titulo, Tema.Tinta, zonaNombre);
-            Dibujo.TextoCentrado(g, casilla.Detalle, normal, Tema.Tinta, new RectangleF(tarjeta.X + 12, franja.Bottom + 6, tarjeta.Width - 24, tarjeta.Bottom - franja.Bottom - 14));
             return;
         }
 
-        bool conFranja = Paleta.TieneFranja(propiedad.Grupo);
-        Color colorFranja = conFranja ? Paleta.ColorGrupo(propiedad.Grupo) : Tema.Crema;
-        Color colorTexto = conFranja && (propiedad.Grupo == GrupoPropiedad.Celeste || propiedad.Grupo == GrupoPropiedad.Amarillo) ? Tema.Tinta
-            : conFranja ? Color.White : Tema.Tinta;
-        using (SolidBrush fondoFranja = new SolidBrush(colorFranja))
-        {
-            g.FillRectangle(fondoFranja, franja);
-        }
-
-        using (Pen bordeFranja = new Pen(Tema.Tinta, 1.2f))
-        {
-            g.DrawRectangle(bordeFranja, franja.X, franja.Y, franja.Width, franja.Height);
-        }
-
-        Dibujo.TextoCentrado(g, "TÍTULO DE PROPIEDAD", pequenia, colorTexto, zonaEtiqueta);
-        Dibujo.TextoCentrado(g, propiedad.Nombre.ToUpperInvariant(), titulo, colorTexto, zonaNombre);
-
-        float yLinea = franja.Bottom + 10;
-        using SolidBrush tinta = new SolidBrush(Tema.Tinta);
-        using StringFormat derecha = new StringFormat { Alignment = StringAlignment.Far };
-        void Fila(string etiqueta, string valor)
-        {
-            g.DrawString(etiqueta, normal, tinta, tarjeta.X + 16, yLinea);
-            g.DrawString(valor, negrita, tinta, new RectangleF(tarjeta.X + 16, yLinea, tarjeta.Width - 32, linea), derecha);
-            yLinea += linea;
-        }
-
-        Fila("Precio", Formato.Dinero(propiedad.PrecioCompra));
-        if (propiedad.Grupo == GrupoPropiedad.Ferrocarril)
-        {
-            Fila("Alquiler con 1 ferrocarril", Formato.Dinero(Ferrocarril.AlquilerClasico));
-            Fila("Con 2 / 3 / 4", $"{Formato.Dinero(Ferrocarril.AlquilerClasico * 2)} / {Formato.Dinero(Ferrocarril.AlquilerClasico * 4)} / {Formato.Dinero(Ferrocarril.AlquilerClasico * 8)}");
-        }
-        else if (propiedad.Grupo == GrupoPropiedad.Servicio)
-        {
-            Fila("Con una compañía", Formato.Dinero(CompaniaServicio.AlquilerConUna));
-            Fila("Con ambas compañías", Formato.Dinero(CompaniaServicio.AlquilerConAmbas));
-        }
-        else
-        {
-            Fila("Alquiler", Formato.Dinero(propiedad.Alquiler));
-        }
-
-        using (Pen separador = new Pen(Tema.Borde, 1.2f))
-        {
-            g.DrawLine(separador, tarjeta.X + 16, yLinea + 4, tarjeta.Right - 16, yLinea + 4);
-        }
-
-        yLinea += 14;
-        int? dueno = _estado?.PropietarioDe(indice);
-        EstadoJugador? jugadorDueno = dueno.HasValue ? _estado?.BuscarJugador(dueno.Value) : null;
-        if (jugadorDueno != null)
-        {
-            float disco = linea + 4;
-            DibujoFicha.DibujarEnDisco(g, jugadorDueno.FormaFicha, new RectangleF(tarjeta.X + 16, yLinea - 2, disco, disco), ColorDeJugador(jugadorDueno.Id), false);
-            g.DrawString($"Dueño: {jugadorDueno.Nombre}", negrita, tinta, tarjeta.X + 24 + disco, yLinea + 2);
-        }
-        else
-        {
-            using SolidBrush verde = new SolidBrush(Tema.Exito);
-            g.DrawString("Disponible para comprar", negrita, verde, tarjeta.X + 16, yLinea + 2);
-        }
+        _posiciones[idJugador] = posicion;
+        InvalidarCasilla(anterior);
+        InvalidarCasilla(posicion);
     }
 
     private string NombreDeJugador(int id)
