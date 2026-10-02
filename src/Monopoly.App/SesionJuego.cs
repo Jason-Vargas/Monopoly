@@ -21,6 +21,7 @@ internal sealed class SesionJuego : IDisposable
     private readonly Control _hiloInterfaz;
     private readonly ListaSimple<string> _eventos = new ListaSimple<string>();
     private IDispositivoCajero _cajero = new CajeroSimulado();
+    private MonitorCajero? _monitor;
     private bool _cerrada;
 
     /// <summary>
@@ -134,6 +135,11 @@ internal sealed class SesionJuego : IDisposable
     /// Cajero conectado al servidor de esta aplicación (el simulado si no hay Pico W).
     /// </summary>
     public IDispositivoCajero Cajero => _cajero;
+
+    /// <summary>
+    /// Monitor de diagnóstico del cajero (solo el organizador, que aloja a la Pico W); <c>null</c> en los demás.
+    /// </summary>
+    public MonitorCajero? MonitorCajero => Servidor == null ? null : _monitor ??= new MonitorCajero(this);
 
     /// <summary>
     /// Conecta un nuevo cajero al servidor alojado y libera el anterior. Solo el organizador aloja al
@@ -250,6 +256,7 @@ internal sealed class SesionJuego : IDisposable
         }
 
         _cerrada = true;
+        _monitor?.Dispose();
         Cliente.Dispose();
         Servidor?.Dispose();
         _cajero.EstadoCambiado -= AlCambiarEstadoCajero;
@@ -264,7 +271,11 @@ internal sealed class SesionJuego : IDisposable
         EnHiloInterfaz(() => CajeroCambiado?.Invoke());
     }
 
-    private void EnHiloInterfaz(Action accion)
+    /// <summary>
+    /// Ejecuta una acción en el hilo de la interfaz (se puede llamar desde cualquier hilo).
+    /// </summary>
+    /// <param name="accion">Acción a ejecutar.</param>
+    public void EnHiloInterfaz(Action accion)
     {
         if (_hiloInterfaz.IsDisposed)
         {

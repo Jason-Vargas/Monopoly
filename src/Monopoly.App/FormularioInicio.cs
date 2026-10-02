@@ -51,8 +51,7 @@ internal sealed class FormularioInicio : Form
     public FormularioInicio(ArgumentosInicio argumentos)
     {
         _argumentos = argumentos;
-        AutoScaleDimensions = new SizeF(96f, 96f);
-        AutoScaleMode = AutoScaleMode.Dpi;
+        AutoScaleMode = AutoScaleMode.None;
         Text = Tema.NombreJuego;
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;

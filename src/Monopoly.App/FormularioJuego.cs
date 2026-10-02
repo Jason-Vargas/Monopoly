@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
+using Monopoly.App.Estilo;
 using Monopoly.Core.Logica;
 using Monopoly.Core.Modelo;
 using Monopoly.Core.Red;
@@ -8,28 +9,39 @@ using Monopoly.Core.Red;
 namespace Monopoly.App;
 
 /// <summary>
-/// Ventana principal de la partida: tablero, jugadores, botones de acción, registro de eventos y
-/// acceso al historial. Todo lo que muestra proviene de los mensajes del servidor; los botones solo
-/// envían solicitudes y se habilitan según el último estado recibido (el servidor valida igualmente).
+/// Ventana principal de la partida: el tablero a la izquierda y, a la derecha, los botones de historial y
+/// de opciones (engranaje), las tarjetas de los jugadores, lo que se espera ahora, solo las acciones que
+/// corresponden a la fase y la actividad reciente (plegable). Todo lo que muestra proviene de los mensajes
+/// del servidor; los botones solo envían solicitudes (el servidor valida igualmente). Los dados se lanzan
+/// con el botón físico y los pagos se hacen con la tarjeta: aquí no hay botones para eso.
 /// </summary>
 internal sealed class FormularioJuego : Form
 {
-    private const int MaximoLineasRegistro = 600;
+    private const int MaximoLineasRegistro = 300;
+    private const int AnchoLateral = 460;
+    private const int Margen = 14;
 
     private readonly SesionJuego _sesion;
     private readonly Tablero _tablero = new Tablero();
     private readonly PanelTablero _panelTablero = new PanelTablero { Dock = DockStyle.Fill };
-    private readonly PanelJugadores _panelJugadores = new PanelJugadores { Dock = DockStyle.Fill };
-    private readonly Label _lblInfo = new Label { Dock = DockStyle.Fill, AutoSize = false, Padding = new Padding(6, 2, 6, 2), TextAlign = ContentAlignment.MiddleLeft };
-    private readonly Button _btnComprar = CrearBoton("Comprar", Color.FromArgb(40, 140, 70));
-    private readonly Button _btnNoComprar = CrearBoton("No comprar", Color.FromArgb(120, 120, 120));
-    private readonly Button _btnTerminar = CrearBoton("Terminar turno", Color.FromArgb(150, 40, 40));
-    private readonly Button _btnHistorial = CrearBoton("Historial de transacciones...", Color.FromArgb(70, 70, 90));
-    private readonly Button _btnRetirar = CrearBoton("Retirar jugadores desconectados...", Color.FromArgb(200, 100, 0));
-    private readonly ListBox _lstRegistro = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false, HorizontalScrollbar = true };
-    private readonly ToolStripStatusLabel _lblMensaje = new ToolStripStatusLabel { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
-    private readonly ToolStripStatusLabel _lblConexion = new ToolStripStatusLabel();
+    private readonly Lienzo _lateral = new Lienzo { Dock = DockStyle.Right, Width = AnchoLateral };
+    private readonly PanelJugadores _panelJugadores = new PanelJugadores();
+    private readonly BotonIcono _btnHistorial = new BotonIcono(Iconos.Libro, "Historial de transacciones") { Text = "Historial" };
+    private readonly BotonIcono _btnOpciones = new BotonIcono(Iconos.Engranaje, "Opciones");
+    private readonly TarjetaPanel _tarjetaSituacion = new TarjetaPanel { Radio = 14f };
+    private readonly Etiqueta _lblTurno = new Etiqueta(string.Empty, 10f, FontStyle.Bold, Tema.Rojo);
+    private readonly Etiqueta _lblSituacion = new Etiqueta(string.Empty, 11f, FontStyle.Bold, Tema.Tinta);
+    private readonly BotonRedondeado _btnComprar = new BotonRedondeado { Text = "Comprar", Estilo = EstiloBoton.Exito };
+    private readonly BotonRedondeado _btnNoComprar = new BotonRedondeado { Text = "No comprar", Estilo = EstiloBoton.Secundario };
+    private readonly BotonRedondeado _btnTerminar = new BotonRedondeado { Text = "Terminar turno", Estilo = EstiloBoton.Principal };
+    private readonly BotonRedondeado _btnRetirar = new BotonRedondeado { Text = "Retirar jugadores desconectados...", Estilo = EstiloBoton.Secundario };
+    private readonly BotonRedondeado _btnActividad = new BotonRedondeado { Estilo = EstiloBoton.Secundario, Radio = 10f };
+    private readonly ListBox _lstRegistro = new ListBox { IntegralHeight = false, BorderStyle = BorderStyle.None };
+    private readonly Etiqueta _lblUltimoEvento = new Etiqueta(string.Empty, 9.5f);
+    private readonly Notificaciones _notificaciones;
     private FormularioHistorial? _historial;
+    private FormularioOpciones? _opciones;
+    private bool _actividadDesplegada = true;
     private bool _animarProximoEstado;
     private bool _finMostrado;
     private bool _desconectado;
@@ -40,31 +52,64 @@ internal sealed class FormularioJuego : Form
     public FormularioJuego(SesionJuego sesion)
     {
         _sesion = sesion;
-        Text = $"Monopoly Distribuido — {sesion.Nombre} (jugador {sesion.IdJugador})";
+        AutoScaleMode = AutoScaleMode.None;
+        Text = $"{Tema.NombreJuego} — {sesion.Nombre}{(sesion.EsOrganizador ? " (banco)" : string.Empty)}";
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(1280, 860);
-        MinimumSize = new Size(1000, 820);
-        BackColor = Paleta.FondoPanel;
-        Font = new Font(Paleta.Fuente, 9.5f);
+        // Tamaño inicial: aprovecha la pantalla sin pasarse del área de trabajo.
+        Rectangle area = Screen.FromPoint(Cursor.Position).WorkingArea;
+        ClientSize = new Size(Math.Min(1720, area.Width - 40), Math.Min(1080, area.Height - 60));
+        MinimumSize = new Size(Math.Min(1100, area.Width), Math.Min(780, area.Height));
+        BackColor = Tema.Crema;
+        Font = Tema.Texto(10f);
+        _notificaciones = new Notificaciones(this);
 
-        Controls.Add(CrearDistribucion());
-        StatusStrip barra = new StatusStrip();
-        _lblConexion.Text = sesion.EsOrganizador
-            ? $"Banco alojado en este equipo · puerto {sesion.Puerto}"
-            : $"Conectado a {sesion.Host}:{sesion.Puerto}";
-        barra.Items.Add(_lblMensaje);
-        barra.Items.Add(_lblConexion);
-        Controls.Add(barra);
-        if (sesion.EsOrganizador)
+        Controls.Add(_panelTablero);
+        Controls.Add(_lateral);
+        _lateral.BackColor = Tema.Crema;
+        _lateral.Paint += (s, e) =>
         {
-            Controls.Add(new BarraCajero(sesion) { Dock = DockStyle.Top });
+            using Pen borde = new Pen(Tema.Borde, 1f);
+            e.Graphics.DrawLine(borde, 0, 0, 0, _lateral.Height);
+        };
+
+        _btnHistorial.Size = new Size(160, 48);
+        _btnOpciones.Size = new Size(48, 48);
+        _lateral.Controls.Add(_btnHistorial);
+        _lateral.Controls.Add(_btnOpciones);
+        _lateral.Controls.Add(_panelJugadores);
+
+        _lblTurno.TextAlign = ContentAlignment.MiddleLeft;
+        _tarjetaSituacion.Controls.Add(_lblTurno);
+        _tarjetaSituacion.Controls.Add(_lblSituacion);
+        _lateral.Controls.Add(_tarjetaSituacion);
+
+        foreach (BotonRedondeado boton in new[] { _btnComprar, _btnNoComprar, _btnTerminar, _btnRetirar })
+        {
+            boton.Font = Tema.Texto(12f, FontStyle.Bold);
+            _lateral.Controls.Add(boton);
         }
+
+        _btnRetirar.Font = Tema.Texto(10f, FontStyle.Bold);
+        _btnActividad.Font = Tema.Texto(10f, FontStyle.Bold);
+        _lateral.Controls.Add(_btnActividad);
+        _lstRegistro.Font = Tema.Texto(9.5f);
+        _lstRegistro.BackColor = Tema.Marfil;
+        _lstRegistro.ForeColor = Tema.TintaSuave;
+        _lateral.Controls.Add(_lstRegistro);
+        _lateral.Controls.Add(_lblUltimoEvento);
 
         _btnComprar.Click += (s, e) => Solicitar(cliente => cliente.ComprarPropiedad());
         _btnNoComprar.Click += (s, e) => Solicitar(cliente => cliente.NoComprar());
         _btnTerminar.Click += (s, e) => Solicitar(cliente => cliente.TerminarTurno());
-        _btnHistorial.Click += (s, e) => AbrirHistorial();
         _btnRetirar.Click += (s, e) => RetirarDesconectados();
+        _btnHistorial.Click += (s, e) => AbrirHistorial();
+        _btnOpciones.Click += (s, e) => AbrirOpciones();
+        _btnActividad.Click += (s, e) =>
+        {
+            _actividadDesplegada = !_actividadDesplegada;
+            Reubicar();
+        };
+        _lateral.Resize += (s, e) => Reubicar();
 
         _sesion.EstadoActualizado += AlActualizarEstado;
         _sesion.EventoRecibido += AlRecibirEvento;
@@ -72,6 +117,10 @@ internal sealed class FormularioJuego : Form
         _sesion.ErrorRecibido += AlRecibirError;
         _sesion.FinRecibido += AlRecibirFin;
         _sesion.Desconectado += AlDesconectar;
+        if (_sesion.MonitorCajero != null)
+        {
+            _sesion.MonitorCajero.PicoPerdida += AlPerderPico;
+        }
 
         _sesion.RecorrerEventos(AgregarAlRegistro);
         HabilitarAcciones(null);
@@ -79,7 +128,14 @@ internal sealed class FormularioJuego : Form
         {
             AlActualizarEstado(_sesion.UltimoEstado);
         }
+
+        Reubicar();
     }
+
+    /// <summary>
+    /// Indica si la ventana se cerró para volver al inicio y reconectarse.
+    /// </summary>
+    public bool VolverParaReconectar { get; private set; }
 
     /// <inheritdoc/>
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -109,50 +165,90 @@ internal sealed class FormularioJuego : Form
         _sesion.ErrorRecibido -= AlRecibirError;
         _sesion.FinRecibido -= AlRecibirFin;
         _sesion.Desconectado -= AlDesconectar;
+        if (_sesion.MonitorCajero != null)
+        {
+            _sesion.MonitorCajero.PicoPerdida -= AlPerderPico;
+        }
+
         _historial?.Close();
+        _opciones?.Close();
+        _notificaciones.Dispose();
         base.OnFormClosed(e);
     }
 
-    private Control CrearDistribucion()
+    /// <summary>
+    /// Coloca los elementos de la columna derecha, de arriba hacia abajo, según el estado y el tamaño.
+    /// </summary>
+    private void Reubicar()
     {
-        TableLayoutPanel principal = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
-        principal.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        principal.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 400f));
-        principal.Controls.Add(_panelTablero, 0, 0);
+        int ancho = _lateral.ClientSize.Width - (2 * Margen);
+        int y = Margen;
+        _btnOpciones.Location = new Point(_lateral.ClientSize.Width - Margen - _btnOpciones.Width, y);
+        _btnHistorial.Location = new Point(_btnOpciones.Left - 8 - _btnHistorial.Width, y);
+        y += _btnOpciones.Height + 8;
 
-        TableLayoutPanel lateral = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, Padding = new Padding(4) };
-        lateral.RowStyles.Add(new RowStyle(SizeType.Absolute, PanelJugadores.AltoPreferido));
-        lateral.RowStyles.Add(new RowStyle(SizeType.Absolute, 86f));
-        lateral.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        lateral.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        lateral.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
-        lateral.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        int jugadores = Math.Max(1, _sesion.UltimoEstado?.Instantanea.Jugadores.Length ?? 1);
+        _panelJugadores.SetBounds(Margen - 8, y, ancho + 16, (jugadores * (PanelJugadores.AltoTarjeta + PanelJugadores.Separacion)) + PanelJugadores.Separacion + 4);
+        y = _panelJugadores.Bottom + 4;
 
-        lateral.Controls.Add(_panelJugadores, 0, 0);
-        _lblInfo.Font = new Font(Paleta.Fuente, 10f, FontStyle.Bold);
-        _lblInfo.BorderStyle = BorderStyle.FixedSingle;
-        lateral.Controls.Add(_lblInfo, 0, 1);
+        // El alto de la situación depende del texto (hasta 4 líneas).
+        int anchoTexto = ancho + (2 * TarjetaPanel.MargenSombra) - 44;
+        int altoTexto;
+        using (Graphics g = CreateGraphics())
+        {
+            altoTexto = (int)Math.Ceiling(g.MeasureString(_lblSituacion.Text.Length == 0 ? " " : _lblSituacion.Text, _lblSituacion.Font, anchoTexto).Height) + 4;
+        }
 
-        FlowLayoutPanel botones = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 4, 0, 4) };
-        botones.Controls.Add(_btnComprar);
-        botones.Controls.Add(_btnNoComprar);
-        _btnTerminar.Width = 382;
-        botones.Controls.Add(_btnTerminar);
-        lateral.Controls.Add(botones, 0, 2);
+        altoTexto = Math.Min(altoTexto, (int)(_lblSituacion.Font.GetHeight() * 4) + 6);
+        _tarjetaSituacion.SetBounds(Margen - TarjetaPanel.MargenSombra, y, ancho + (2 * TarjetaPanel.MargenSombra), altoTexto + 62);
+        _lblTurno.SetBounds(22, 10, anchoTexto, 28);
+        _lblSituacion.SetBounds(22, 40, anchoTexto, altoTexto);
+        y = _tarjetaSituacion.Bottom + 4;
 
-        lateral.Controls.Add(new Label { Text = "Registro de la partida", AutoSize = true, Font = new Font(Paleta.Fuente, 9.5f, FontStyle.Bold), Margin = new Padding(3, 6, 3, 2) }, 0, 3);
-        _lstRegistro.Font = new Font(Paleta.Fuente, 9f);
-        lateral.Controls.Add(_lstRegistro, 0, 4);
-        _btnHistorial.Width = 382;
-        _btnRetirar.Width = 382;
-        _btnRetirar.Visible = false;
-        FlowLayoutPanel inferiores = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.TopDown, Margin = new Padding(0) };
-        inferiores.Controls.Add(_btnRetirar);
-        inferiores.Controls.Add(_btnHistorial);
-        lateral.Controls.Add(inferiores, 0, 5);
+        // Solo los botones que corresponden a la fase.
+        if (_btnComprar.Visible && _btnNoComprar.Visible)
+        {
+            int mitad = (ancho - 8) / 2;
+            _btnComprar.SetBounds(Margen - 4, y, mitad + 8, 60);
+            _btnNoComprar.SetBounds(Margen + mitad + 4, y, mitad + 8, 60);
+            y += 62;
+        }
+        else if (_btnNoComprar.Visible)
+        {
+            _btnNoComprar.SetBounds(Margen - 4, y, ancho + 8, 60);
+            y += 62;
+        }
 
-        principal.Controls.Add(lateral, 1, 0);
-        return principal;
+        if (_btnTerminar.Visible)
+        {
+            _btnTerminar.SetBounds(Margen - 4, y, ancho + 8, 60);
+            y += 62;
+        }
+
+        if (_btnRetirar.Visible)
+        {
+            _btnRetirar.SetBounds(Margen - 4, y, ancho + 8, 50);
+            y += 52;
+        }
+
+        // Actividad reciente, plegable.
+        y += 4;
+        _btnActividad.Text = "Actividad reciente" + (_actividadDesplegada ? "  ·  ocultar" : "  ·  mostrar");
+        _btnActividad.SetBounds(Margen - 4, y, ancho + 8, 46);
+        y += 48;
+        int resto = _lateral.ClientSize.Height - y - Margen;
+        _lstRegistro.Visible = _actividadDesplegada && resto > 40;
+        _lblUltimoEvento.Visible = !_lstRegistro.Visible;
+        if (_lstRegistro.Visible)
+        {
+            _lstRegistro.SetBounds(Margen, y, ancho, resto);
+        }
+        else
+        {
+            _lblUltimoEvento.SetBounds(Margen + 4, y, ancho - 8, Math.Max(24, Math.Min(44, resto)));
+        }
+
+        _lateral.Invalidate();
     }
 
     private void AlActualizarEstado(EstadoRed estado)
@@ -161,8 +257,9 @@ internal sealed class FormularioJuego : Form
         _animarProximoEstado = false;
         _panelJugadores.MostrarEstado(estado, _sesion.IdJugador);
         HabilitarAcciones(estado);
-        _lblInfo.Text = DescribirSituacion(estado);
+        DescribirSituacion(estado);
         _panelTablero.Aviso = AvisoParaTodos(estado);
+        Reubicar();
     }
 
     private void AlRecibirDados(int idJugador, int dado1, int dado2)
@@ -176,22 +273,31 @@ internal sealed class FormularioJuego : Form
         AgregarAlRegistro(texto);
         if (texto.StartsWith("Cajero:", StringComparison.Ordinal))
         {
-            // Lo que pasa en el cajero físico (tarjeta leída, botón del dado) se destaca para todos.
-            _lblMensaje.ForeColor = Color.FromArgb(30, 70, 150);
-            _lblMensaje.Text = texto;
+            // Lo que pasa en el cajero físico (tarjeta leída, botón ignorado...) se destaca para todos.
+            bool rechazo = texto.Contains("rechaz", StringComparison.OrdinalIgnoreCase) || texto.Contains("no está registrada", StringComparison.Ordinal)
+                || texto.Contains("pertenece a", StringComparison.Ordinal) || texto.Contains("desconectado", StringComparison.OrdinalIgnoreCase);
+            _notificaciones.Mostrar(texto.Substring("Cajero:".Length).Trim(), rechazo ? TipoNotificacion.Error : TipoNotificacion.Informacion, 5000);
         }
     }
 
     private void AlRecibirError(string mensaje)
     {
-        _lblMensaje.ForeColor = Color.FromArgb(170, 20, 20);
-        _lblMensaje.Text = "⚠ " + mensaje;
+        _notificaciones.Mostrar(mensaje, TipoNotificacion.Error, 6000);
         AgregarAlRegistro("⚠ " + mensaje);
+    }
+
+    private void AlPerderPico()
+    {
+        BeginInvoke(new Action(() => MessageBox.Show(this,
+            "Se perdió la conexión con el cajero (Pico W).\n\nLa partida queda en pausa: nadie puede tirar los dados ni pagar " +
+            "hasta reconectarla. Revise el cable USB y abra las opciones (engranaje) para pulsar \"Conectar\" o \"Detectar\". La partida no se pierde.",
+            "Cajero desconectado", MessageBoxButtons.OK, MessageBoxIcon.Warning)));
     }
 
     private void AlRecibirFin(string ganador, string resumen)
     {
         HabilitarAcciones(_sesion.UltimoEstado);
+        Reubicar();
         if (_finMostrado)
         {
             return;
@@ -209,9 +315,10 @@ internal sealed class FormularioJuego : Form
     {
         _desconectado = true;
         HabilitarAcciones(null);
-        _lblConexion.Text = "Desconectado";
-        _lblMensaje.ForeColor = Color.FromArgb(170, 20, 20);
-        _lblMensaje.Text = motivo;
+        Reubicar();
+        _lblTurno.Text = "Desconectado";
+        _lblSituacion.ForeColor = Tema.Error;
+        _lblSituacion.Text = motivo;
         AgregarAlRegistro("⚠ " + motivo);
         if (_sesion.EsOrganizador || _sesion.Cliente.CerradoPorElServidor
             || _sesion.UltimoEstado?.Instantanea.Estado == EstadoPartida.Finalizada)
@@ -268,14 +375,8 @@ internal sealed class FormularioJuego : Form
         }
     }
 
-    /// <summary>
-    /// Indica si la ventana se cerró para volver al inicio y reconectarse.
-    /// </summary>
-    public bool VolverParaReconectar { get; private set; }
-
     private void Solicitar(Action<Cliente> solicitud)
     {
-        _lblMensaje.Text = string.Empty;
         _sesion.Solicitar(solicitud);
     }
 
@@ -288,11 +389,11 @@ internal sealed class FormularioJuego : Form
         bool miTurno = enCurso && activo && i!.IdJugadorEnTurno == yo;
 
         // Los dados se lanzan con el botón físico y se paga o compra acercando la tarjeta al lector:
-        // aquí solo quedan las decisiones del jugador en turno.
-        _btnComprar.Enabled = miTurno && i!.Fase == FaseTurno.EsperandoDecisionCompra;
-        _btnNoComprar.Enabled = miTurno && (i!.Fase == FaseTurno.EsperandoDecisionCompra || i.Fase == FaseTurno.EsperandoTarjetaCompra);
-        _btnTerminar.Enabled = miTurno && i!.Fase == FaseTurno.PuedeTerminar;
-        bool debo = enCurso && yo.HasValue && i!.IdDeudor == yo;
+        // aquí solo aparecen las decisiones del jugador en turno que corresponden a la fase.
+        _btnComprar.Visible = miTurno && i!.Fase == FaseTurno.EsperandoDecisionCompra;
+        _btnNoComprar.Visible = miTurno && (i!.Fase == FaseTurno.EsperandoDecisionCompra || i.Fase == FaseTurno.EsperandoTarjetaCompra);
+        _btnNoComprar.Text = miTurno && i!.Fase == FaseTurno.EsperandoTarjetaCompra ? "Cancelar compra (No comprar)" : "No comprar";
+        _btnTerminar.Visible = miTurno && i!.Fase == FaseTurno.PuedeTerminar;
         _btnHistorial.Enabled = !_desconectado;
 
         // El organizador puede retirar a jugadores desconectados para que la partida no quede esperándolos.
@@ -306,26 +407,33 @@ internal sealed class FormularioJuego : Form
         }
 
         _btnRetirar.Visible = _sesion.EsOrganizador && hayDesconectados;
-
-        _lblInfo.BackColor = miTurno || debo ? Color.FromArgb(255, 238, 170) : Color.White;
+        bool debo = enCurso && yo.HasValue && i!.IdDeudor == yo;
+        _tarjetaSituacion.Resaltada = miTurno || debo;
+        _tarjetaSituacion.ColorResaltado = Tema.Dorado;
+        _tarjetaSituacion.ColorFondo = miTurno || debo ? Color.FromArgb(255, 249, 226) : Tema.Marfil;
     }
 
-    private string DescribirSituacion(EstadoRed estado)
+    private void DescribirSituacion(EstadoRed estado)
     {
         InstantaneaJuego i = estado.Instantanea;
+        _lblSituacion.ForeColor = Tema.Tinta;
         if (i.Estado == EstadoPartida.Finalizada)
         {
-            return $"Partida finalizada. Ganador: {estado.BuscarJugador(i.IdGanador ?? 0)?.Nombre}.";
+            _lblTurno.Text = "Partida finalizada";
+            _lblSituacion.Text = $"Ganador: {estado.BuscarJugador(i.IdGanador ?? 0)?.Nombre}.";
+            return;
         }
 
         if (i.Estado != EstadoPartida.EnCurso || !i.IdJugadorEnTurno.HasValue)
         {
-            return "Esperando el inicio de la partida.";
+            _lblTurno.Text = string.Empty;
+            _lblSituacion.Text = "Esperando el inicio de la partida.";
+            return;
         }
 
         bool miTurno = i.IdJugadorEnTurno == _sesion.IdJugador;
-        string titulo = $"Turno {i.NumeroTurno}/{i.MaximoTurnos}{(miTurno ? " · ¡ES SU TURNO!" : string.Empty)}";
-        return titulo + "\n" + AvisoParaTodos(estado);
+        _lblTurno.Text = $"TURNO {i.NumeroTurno} DE {i.MaximoTurnos}{(miTurno ? "  ·  ¡ES SU TURNO!" : string.Empty)}";
+        _lblSituacion.Text = AvisoParaTodos(estado);
     }
 
     /// <summary>
@@ -344,7 +452,7 @@ internal sealed class FormularioJuego : Form
         bool miTurno = idEnTurno == _sesion.IdJugador;
         if (!estado.EstaConectado(idEnTurno) && !miTurno)
         {
-            string ayuda = _sesion.EsOrganizador ? "Espere o retírelo (botón naranja)." : "Espere a que vuelva o lo retire el organizador.";
+            string ayuda = _sesion.EsOrganizador ? "Espere o retírelo con el botón de abajo." : "Espere a que vuelva o lo retire el organizador.";
             return $"{nombre} está DESCONECTADO. {ayuda}";
         }
 
@@ -363,11 +471,10 @@ internal sealed class FormularioJuego : Form
                 return $"Turno de {nombre}: presione el botón físico para lanzar los dados{pruebas}.";
             case FaseTurno.EsperandoDecisionCompra:
                 return miTurno
-                    ? $"¿Desea comprar {propiedad?.Nombre} por {precio}? Elija \"Comprar\" o \"No comprar\"."
+                    ? $"¿Desea comprar {propiedad?.Nombre} por {precio}?"
                     : $"{nombre} decide si compra {propiedad?.Nombre} por {precio}.";
             case FaseTurno.EsperandoTarjetaCompra:
-                return $"{nombre} quiere comprar {propiedad?.Nombre} por {precio}: acerque su tarjeta al lector{pruebas}."
-                       + (miTurno ? " (\"No comprar\" cancela)" : string.Empty);
+                return $"{nombre} quiere comprar {propiedad?.Nombre} por {precio}: acerque su tarjeta al lector{pruebas}.";
             case FaseTurno.EsperandoPago:
                 return $"{i.DescripcionPagoPendiente}: acerque su tarjeta al lector{pruebas}.";
             default:
@@ -384,6 +491,7 @@ internal sealed class FormularioJuego : Form
         }
 
         _lstRegistro.TopIndex = Math.Max(0, _lstRegistro.Items.Count - 1);
+        _lblUltimoEvento.Text = texto;
     }
 
     private void AbrirHistorial()
@@ -399,21 +507,16 @@ internal sealed class FormularioJuego : Form
         }
     }
 
-    private static Button CrearBoton(string texto, Color color)
+    private void AbrirOpciones()
     {
-        Button boton = new Button
+        if (_opciones == null || _opciones.IsDisposed)
         {
-            Text = texto,
-            Width = 188,
-            Height = 40,
-            FlatStyle = FlatStyle.Flat,
-            BackColor = color,
-            ForeColor = Color.White,
-            Font = new Font(Paleta.Fuente, 9.5f, FontStyle.Bold),
-            Margin = new Padding(3),
-        };
-        boton.FlatAppearance.BorderColor = Color.FromArgb(40, 40, 40);
-        boton.EnabledChanged += (s, e) => boton.BackColor = boton.Enabled ? color : Color.FromArgb(200, 200, 195);
-        return boton;
+            _opciones = new FormularioOpciones(_sesion, Close);
+            _opciones.Show(this);
+        }
+        else
+        {
+            _opciones.Activate();
+        }
     }
 }

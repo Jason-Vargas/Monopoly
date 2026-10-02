@@ -1,9 +1,9 @@
 using System;
 using System.Diagnostics;
 using System.Drawing;
-using System.Globalization;
 using System.IO;
 using System.Windows.Forms;
+using Monopoly.App.Estilo;
 using Monopoly.Core.Estructuras;
 using Monopoly.Core.Logica;
 using Monopoly.Core.Modelo;
@@ -12,22 +12,35 @@ using Monopoly.Core.Red;
 namespace Monopoly.App;
 
 /// <summary>
-/// Historial de transacciones consultado al servidor, con filtros (todas, más antiguas primero,
-/// más recientes primero, por jugador, por tipo) y exportación del TXT.
+/// Historial de transacciones en una ventana aparte: tabla con filas alternadas, ícono por tipo y montos en
+/// verde (ingreso) o rojo (pago). Filtros: todas, más antiguas primero, más recientes primero, por jugador y
+/// por tipo; cada filtro se consulta al servidor con CONSULTAR_TRANSACCIONES. Exporta el TXT y se actualiza
+/// sola cuando llegan transacciones nuevas mientras está abierta.
 /// </summary>
 internal sealed class FormularioHistorial : Form
 {
     private const string PrefijoExportado = "Historial exportado a ";
+    private const int AltoCabecera = 128;
+
+    private static readonly string[] NombresFiltro = { "Todas", "Más antiguas primero", "Más recientes primero", "Por jugador", "Por tipo" };
+    private static readonly FiltroTransacciones[] Filtros =
+    {
+        FiltroTransacciones.Todas, FiltroTransacciones.Antiguas, FiltroTransacciones.Recientes, FiltroTransacciones.Jugador, FiltroTransacciones.Tipo,
+    };
 
     private readonly SesionJuego _sesion;
-    private readonly ComboBox _cmbFiltro = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly ComboBox _cmbValor = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly Button _btnConsultar = new Button { Text = "Consultar" };
-    private readonly Button _btnExportar = new Button { Text = "Exportar TXT" };
-    private readonly Button _btnAbrirCarpeta = new Button { Text = "Abrir carpeta", Visible = false };
-    private readonly Label _lblResultado = new Label { AutoSize = false };
-    private readonly ListView _lista = new ListView { View = View.Details, FullRowSelect = true, GridLines = true };
+    private readonly BotonRedondeado[] _botonesFiltro = new BotonRedondeado[Filtros.Length];
+    private readonly ComboBox _cmbValor = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat };
+    private readonly BotonRedondeado _btnExportar = new BotonRedondeado { Text = "Exportar TXT", Estilo = EstiloBoton.Exito };
+    private readonly BotonRedondeado _btnAbrirCarpeta = new BotonRedondeado { Text = "Abrir carpeta", Estilo = EstiloBoton.Secundario, Visible = false };
+    private readonly TablaTransacciones _tabla = new TablaTransacciones();
+    private readonly Etiqueta _lblResultado = new Etiqueta(string.Empty, 9.5f);
+    private readonly Notificaciones _notificaciones;
+    private int _filtro;
+    private int _ultimaCantidad = -1;
     private bool _esperandoExportacion;
+    private bool _esperandoConsulta;
+    private bool _cargandoValores;
     private string? _rutaExportada;
 
     /// <summary>
@@ -36,58 +49,61 @@ internal sealed class FormularioHistorial : Form
     public FormularioHistorial(SesionJuego sesion)
     {
         _sesion = sesion;
-        Text = "Historial de transacciones";
+        AutoScaleMode = AutoScaleMode.None;
+        Text = $"Historial de transacciones · {Tema.NombreJuego}";
         StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(1060, 560);
-        MinimumSize = new Size(700, 400);
-        BackColor = Paleta.FondoPanel;
-        Font = new Font(Paleta.Fuente, 9.5f);
+        ClientSize = new Size(1260, 720);
+        MinimumSize = new Size(900, 480);
+        BackColor = Tema.Crema;
+        Font = Tema.Texto(10f);
+        DoubleBuffered = true;
+        _notificaciones = new Notificaciones(this);
 
-        FlowLayoutPanel barra = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 44, Padding = new Padding(6, 8, 6, 0) };
-        barra.Controls.Add(new Label { Text = "Filtro:", AutoSize = true, Margin = new Padding(3, 6, 3, 0) });
-        _cmbFiltro.Width = 190;
-        _cmbFiltro.Items.Add(new OpcionLista("Todas", "TODAS"));
-        _cmbFiltro.Items.Add(new OpcionLista("Más antiguas primero", "ANTIGUAS"));
-        _cmbFiltro.Items.Add(new OpcionLista("Más recientes primero", "RECIENTES"));
-        _cmbFiltro.Items.Add(new OpcionLista("Por jugador", "JUGADOR"));
-        _cmbFiltro.Items.Add(new OpcionLista("Por tipo", "TIPO"));
-        _cmbFiltro.SelectedIndex = 0;
-        _cmbFiltro.SelectedIndexChanged += (s, e) => CargarValores();
-        barra.Controls.Add(_cmbFiltro);
-        _cmbValor.Width = 210;
-        barra.Controls.Add(_cmbValor);
-        _btnConsultar.AutoSize = true;
-        _btnConsultar.Click += (s, e) => Consultar();
-        barra.Controls.Add(_btnConsultar);
-        _btnExportar.AutoSize = true;
+        int x = 20;
+        for (int i = 0; i < Filtros.Length; i++)
+        {
+            int indice = i;
+            BotonRedondeado boton = new BotonRedondeado { Text = NombresFiltro[i], Estilo = EstiloBoton.Secundario, Radio = 10f };
+            boton.Font = Tema.Texto(9.5f, FontStyle.Bold);
+            int ancho = TextRenderer.MeasureText(NombresFiltro[i], boton.Font).Width + 34;
+            boton.SetBounds(x, 66, ancho, 46);
+            boton.Click += (s, e) => ElegirFiltro(indice);
+            _botonesFiltro[i] = boton;
+            Controls.Add(boton);
+            x += ancho + 2;
+        }
+
+        _cmbValor.Font = Tema.Texto(10.5f);
+        _cmbValor.SetBounds(x + 6, 76, 190, 30);
+        _cmbValor.SelectedIndexChanged += AlCambiarValor;
+        Controls.Add(_cmbValor);
+
+        _btnExportar.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        _btnExportar.Font = Tema.Texto(10f, FontStyle.Bold);
+        _btnExportar.SetBounds(ClientSize.Width - 200, 6, 184, 52);
         _btnExportar.Click += (s, e) => Exportar();
-        barra.Controls.Add(_btnExportar);
-        _btnAbrirCarpeta.AutoSize = true;
+        Controls.Add(_btnExportar);
+        _btnAbrirCarpeta.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        _btnAbrirCarpeta.Font = Tema.Texto(10f, FontStyle.Bold);
+        _btnAbrirCarpeta.SetBounds(ClientSize.Width - 390, 6, 184, 52);
         _btnAbrirCarpeta.Click += (s, e) => AbrirCarpeta();
-        barra.Controls.Add(_btnAbrirCarpeta);
+        Controls.Add(_btnAbrirCarpeta);
 
-        _lblResultado.Dock = DockStyle.Bottom;
-        _lblResultado.Height = 44;
-        _lblResultado.Padding = new Padding(8, 4, 8, 4);
+        _tabla.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+        _tabla.SetBounds(20, AltoCabecera, ClientSize.Width - 40, ClientSize.Height - AltoCabecera - 48);
+        Controls.Add(_tabla);
 
-        _lista.Dock = DockStyle.Fill;
-        _lista.Columns.Add("N°", 50, HorizontalAlignment.Right);
-        _lista.Columns.Add("Turno", 62, HorizontalAlignment.Right);
-        _lista.Columns.Add("Hora", 80);
-        _lista.Columns.Add("Tipo", 205);
-        _lista.Columns.Add("Origen", 100);
-        _lista.Columns.Add("Destino", 100);
-        _lista.Columns.Add("Monto", 80, HorizontalAlignment.Right);
-        _lista.Columns.Add("Descripción", 330);
-
-        Controls.Add(_lista);
+        _lblResultado.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+        _lblResultado.SetBounds(20, ClientSize.Height - 42, ClientSize.Width - 40, 34);
+        _lblResultado.TextAlign = ContentAlignment.MiddleLeft;
         Controls.Add(_lblResultado);
-        Controls.Add(barra);
 
         _sesion.TransaccionesRecibidas += AlRecibirTransacciones;
         _sesion.EventoRecibido += AlRecibirEvento;
         _sesion.ErrorRecibido += AlRecibirError;
-        CargarValores();
+        _sesion.EstadoActualizado += AlActualizarEstado;
+        _ultimaCantidad = _sesion.UltimoEstado?.Instantanea.CantidadTransacciones ?? 0;
+        ElegirFiltro(0, false);
     }
 
     /// <inheritdoc/>
@@ -98,19 +114,53 @@ internal sealed class FormularioHistorial : Form
     }
 
     /// <inheritdoc/>
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        Dibujo.Calidad(g);
+        using (SolidBrush franja = new SolidBrush(Tema.VerdeMenta))
+        {
+            g.FillRectangle(franja, 0, 0, ClientSize.Width, 58);
+        }
+
+        Iconos.Libro(g, new RectangleF(20, 14, 32, 32), Tema.Rojo);
+        using Font titulo = Tema.Titulo(19f);
+        using SolidBrush rojo = new SolidBrush(Tema.Rojo);
+        g.DrawString("Historial de transacciones", titulo, rojo, 62, 10);
+    }
+
+    /// <inheritdoc/>
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         _sesion.TransaccionesRecibidas -= AlRecibirTransacciones;
         _sesion.EventoRecibido -= AlRecibirEvento;
         _sesion.ErrorRecibido -= AlRecibirError;
+        _sesion.EstadoActualizado -= AlActualizarEstado;
+        _notificaciones.Dispose();
         base.OnFormClosed(e);
+    }
+
+    private void ElegirFiltro(int indice, bool consultar = true)
+    {
+        _filtro = indice;
+        for (int i = 0; i < _botonesFiltro.Length; i++)
+        {
+            _botonesFiltro[i].Estilo = i == indice ? EstiloBoton.Principal : EstiloBoton.Secundario;
+        }
+
+        CargarValores();
+        if (consultar)
+        {
+            Consultar();
+        }
     }
 
     private void CargarValores()
     {
-        string filtro = ((OpcionLista)_cmbFiltro.SelectedItem!).Valor;
+        FiltroTransacciones filtro = Filtros[_filtro];
+        _cmbValor.BeginUpdate();
         _cmbValor.Items.Clear();
-        if (filtro == "JUGADOR" && _sesion.UltimoEstado != null)
+        if (filtro == FiltroTransacciones.Jugador && _sesion.UltimoEstado != null)
         {
             foreach (EstadoJugador jugador in _sesion.UltimoEstado.Instantanea.Jugadores)
             {
@@ -119,7 +169,7 @@ internal sealed class FormularioHistorial : Form
 
             _cmbValor.Items.Add(new OpcionLista("Banco", Transaccion.Banco));
         }
-        else if (filtro == "TIPO")
+        else if (filtro == FiltroTransacciones.Tipo)
         {
             foreach (TipoTransaccion tipo in Enum.GetValues<TipoTransaccion>())
             {
@@ -127,18 +177,46 @@ internal sealed class FormularioHistorial : Form
             }
         }
 
-        _cmbValor.Enabled = _cmbValor.Items.Count > 0;
-        if (_cmbValor.Enabled)
+        _cmbValor.Visible = _cmbValor.Items.Count > 0;
+        if (_cmbValor.Visible)
         {
-            _cmbValor.SelectedIndex = 0;
+            // Por jugador, empieza por el propio.
+            int inicial = 0;
+            for (int i = 0; i < _cmbValor.Items.Count; i++)
+            {
+                if (((OpcionLista)_cmbValor.Items[i]!).Valor == _sesion.Nombre)
+                {
+                    inicial = i;
+                }
+            }
+
+            _cargandoValores = true;
+            _cmbValor.SelectedIndex = inicial;
+            _cargandoValores = false;
+        }
+
+        _cmbValor.EndUpdate();
+    }
+
+    private void AlCambiarValor(object? remitente, EventArgs e)
+    {
+        if (!_cargandoValores)
+        {
+            Consultar();
         }
     }
 
     private void Consultar()
     {
-        FiltroTransacciones filtro = Enum.Parse<FiltroTransacciones>(((OpcionLista)_cmbFiltro.SelectedItem!).Valor, true);
-        string? valor = _cmbValor.Enabled ? ((OpcionLista)_cmbValor.SelectedItem!).Valor : null;
-        _lblResultado.ForeColor = Color.DimGray;
+        FiltroTransacciones filtro = Filtros[_filtro];
+        string? valor = _cmbValor.Visible && _cmbValor.SelectedItem is OpcionLista opcion ? opcion.Valor : null;
+        if ((filtro == FiltroTransacciones.Jugador || filtro == FiltroTransacciones.Tipo) && valor == null)
+        {
+            return;
+        }
+
+        _esperandoConsulta = true;
+        _lblResultado.ForeColor = Tema.TintaSuave;
         _lblResultado.Text = "Consultando al servidor...";
         _sesion.Solicitar(cliente => cliente.ConsultarTransacciones(filtro, valor));
     }
@@ -146,30 +224,32 @@ internal sealed class FormularioHistorial : Form
     private void Exportar()
     {
         _esperandoExportacion = true;
-        _lblResultado.ForeColor = Color.DimGray;
+        _lblResultado.ForeColor = Tema.TintaSuave;
         _lblResultado.Text = "Solicitando la exportación al servidor...";
         _sesion.Solicitar(cliente => cliente.ExportarTransacciones());
     }
 
+    private void AlActualizarEstado(EstadoRed estado)
+    {
+        // Llegaron transacciones nuevas: se repite la consulta con el mismo filtro.
+        int cantidad = estado.Instantanea.CantidadTransacciones;
+        if (cantidad != _ultimaCantidad)
+        {
+            _ultimaCantidad = cantidad;
+            Consultar();
+        }
+    }
+
     private void AlRecibirTransacciones(string filtro, ListaSimple<Transaccion> transacciones)
     {
-        _lista.BeginUpdate();
-        _lista.Items.Clear();
-        transacciones.Recorrer(t =>
-        {
-            ListViewItem fila = new ListViewItem(t.Id.ToString(CultureInfo.InvariantCulture));
-            fila.SubItems.Add(t.NumeroTurno.ToString(CultureInfo.InvariantCulture));
-            fila.SubItems.Add(t.FechaHora.ToString("HH:mm:ss", CultureInfo.InvariantCulture));
-            fila.SubItems.Add(Formato.Nombre(t.Tipo));
-            fila.SubItems.Add(t.Origen);
-            fila.SubItems.Add(t.Destino);
-            fila.SubItems.Add(Formato.Dinero(t.Monto));
-            fila.SubItems.Add(t.Descripcion);
-            _lista.Items.Add(fila);
-        });
-        _lista.EndUpdate();
-        _lblResultado.ForeColor = Color.Black;
-        _lblResultado.Text = $"{transacciones.Cantidad} transacción(es) · filtro: {filtro}";
+        _esperandoConsulta = false;
+        string? referencia = Filtros[_filtro] == FiltroTransacciones.Jugador && _cmbValor.SelectedItem is OpcionLista opcion && opcion.Valor != Transaccion.Banco
+            ? opcion.Valor
+            : _sesion.Nombre;
+        _tabla.Mostrar(transacciones, referencia);
+        _lblResultado.ForeColor = Tema.Tinta;
+        string valor = _cmbValor.Visible && _cmbValor.SelectedItem is OpcionLista elegido ? $": {elegido}" : string.Empty;
+        _lblResultado.Text = $"{transacciones.Cantidad} transacción(es) · {NombresFiltro[_filtro]}{valor} · montos en verde: ingresos de {referencia}; en rojo: pagos.";
     }
 
     private void AlRecibirEvento(string texto)
@@ -181,17 +261,24 @@ internal sealed class FormularioHistorial : Form
 
         _esperandoExportacion = false;
         _rutaExportada = texto.Substring(PrefijoExportado.Length).TrimEnd('.');
-        _lblResultado.ForeColor = Color.FromArgb(20, 110, 40);
+        _lblResultado.ForeColor = Tema.Exito;
         _lblResultado.Text = _sesion.EsOrganizador
             ? $"TXT generado en esta computadora: {_rutaExportada}"
             : $"TXT generado en la computadora del organizador (banco): {_rutaExportada}";
+        _notificaciones.Mostrar("Historial exportado a TXT.", TipoNotificacion.Exito);
         _btnAbrirCarpeta.Visible = _sesion.EsOrganizador;
     }
 
     private void AlRecibirError(string mensaje)
     {
+        if (!_esperandoExportacion && !_esperandoConsulta)
+        {
+            return;
+        }
+
         _esperandoExportacion = false;
-        _lblResultado.ForeColor = Color.FromArgb(170, 20, 20);
+        _esperandoConsulta = false;
+        _lblResultado.ForeColor = Tema.Error;
         _lblResultado.Text = mensaje;
     }
 

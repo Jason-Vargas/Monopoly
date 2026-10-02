@@ -36,8 +36,8 @@ internal sealed class FormularioSalaEspera : Form
     private readonly Timer _animacion = new Timer { Interval = 16 };
     private readonly string _direccionPrincipal;
     private readonly string _otrasDirecciones;
-    private readonly int _y0;
-    private BarraCajero? _barraCajero;
+    private readonly BotonIcono _btnOpciones = new BotonIcono(Iconos.Engranaje, "Opciones");
+    private FormularioOpciones? _opciones;
     private EstadoRed? _estado;
     private int? _seleccionado;
     private int? _esperandoTarjetaDe;
@@ -50,8 +50,7 @@ internal sealed class FormularioSalaEspera : Form
     public FormularioSalaEspera(SesionJuego sesion)
     {
         _sesion = sesion;
-        AutoScaleDimensions = new SizeF(96f, 96f);
-        AutoScaleMode = AutoScaleMode.Dpi;
+        AutoScaleMode = AutoScaleMode.None;
         Text = $"Sala de espera — {sesion.Nombre} · {Tema.NombreJuego}";
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
@@ -62,15 +61,16 @@ internal sealed class FormularioSalaEspera : Form
         _notificaciones = new Notificaciones(this);
         (_direccionPrincipal, _otrasDirecciones) = Direcciones(sesion);
 
-        if (sesion.EsOrganizador)
+        // Engranaje de opciones: la Pico W (solo el organizador, que la tiene conectada), el sonido y la partida.
+        _btnOpciones.SetBounds(AnchoVentana - 62, 14, 46, 46);
+        _btnOpciones.Click += (s, e) => AbrirOpciones();
+        Controls.Add(_btnOpciones);
+        if (sesion.MonitorCajero != null)
         {
-            // El organizador aloja al banco y, por lo tanto, al cajero (Pico W por USB).
-            _barraCajero = new BarraCajero(sesion) { Dock = DockStyle.Top };
-            Controls.Add(_barraCajero);
-            _y0 = _barraCajero.Height;
+            sesion.MonitorCajero.PicoPerdida += AlPerderPico;
         }
 
-        int alto = (sesion.EsOrganizador ? 670 : 600) + _y0;
+        int alto = (sesion.EsOrganizador ? 670 : 600);
         ClientSize = new Size(AnchoVentana, alto);
         int yBarraInferior = alto - 72;
 
@@ -78,7 +78,7 @@ internal sealed class FormularioSalaEspera : Form
         for (int i = 0; i < _tarjetas.Length; i++)
         {
             TarjetaJugadorSala tarjeta = new TarjetaJugadorSala { Seleccionable = sesion.EsOrganizador };
-            tarjeta.SetBounds(16 + ((i % 2) * 302), _y0 + 84 + ((i / 2) * 136), 300, 134);
+            tarjeta.SetBounds(16 + ((i % 2) * 302), 84 + ((i / 2) * 136), 300, 134);
             tarjeta.Click += (s, e) => SeleccionarJugador(tarjeta.Jugador?.Id);
             _tarjetas[i] = tarjeta;
             Controls.Add(tarjeta);
@@ -86,7 +86,7 @@ internal sealed class FormularioSalaEspera : Form
 
         // Actividad (registro de eventos).
         TarjetaPanel actividad = new TarjetaPanel { Titulo = "Actividad", TamanioTitulo = 12f };
-        int yActividad = _y0 + 356;
+        int yActividad = 356;
         actividad.SetBounds(16, yActividad, 604, yBarraInferior - yActividad - 4);
         _lstEventos.BackColor = Tema.Marfil;
         _lstEventos.ForeColor = Tema.TintaSuave;
@@ -102,7 +102,7 @@ internal sealed class FormularioSalaEspera : Form
             TamanioTitulo = 13f,
             Icono = (g, a) => Iconos.Red(g, a, Tema.VerdeProfundo),
         };
-        direccion.SetBounds(ColumnaDerecha, _y0 + 76, AnchoDerecha, 170);
+        direccion.SetBounds(ColumnaDerecha, 76, AnchoDerecha, 170);
         direccion.Paint += (s, e) => DibujarDireccion(e.Graphics);
         BotonRedondeado copiar = new BotonRedondeado { Text = "Copiar", Estilo = EstiloBoton.Secundario, Radio = 10f };
         copiar.Font = Tema.Texto(9.5f, FontStyle.Bold);
@@ -113,7 +113,7 @@ internal sealed class FormularioSalaEspera : Form
 
         // Estado de la Pico W.
         _tarjetaPico.Icono = (g, a) => Iconos.Chip(g, a, ColorPico());
-        _tarjetaPico.SetBounds(ColumnaDerecha, _y0 + 250, AnchoDerecha, 102);
+        _tarjetaPico.SetBounds(ColumnaDerecha, 250, AnchoDerecha, 102);
         _lblPico.SetBounds(26, 60, AnchoDerecha - 50, 28);
         _tarjetaPico.Controls.Add(_lblPico);
         Controls.Add(_tarjetaPico);
@@ -122,7 +122,7 @@ internal sealed class FormularioSalaEspera : Form
         {
             // Registro de tarjetas: el organizador elige un jugador y la próxima tarjeta leída queda vinculada.
             TarjetaPanel rfid = new TarjetaPanel { Titulo = "Tarjetas RFID", TamanioTitulo = 13f, Icono = (g, a) => Iconos.TarjetaRfid(g, a, Tema.Rojo) };
-            rfid.SetBounds(ColumnaDerecha, _y0 + 356, AnchoDerecha, yBarraInferior - (_y0 + 356) - 4);
+            rfid.SetBounds(ColumnaDerecha, 356, AnchoDerecha, yBarraInferior - (356) - 4);
             Etiqueta ayuda = new Etiqueta("Haga clic en un jugador, pulse \"Vincular\" y acerque su tarjeta al lector.", 9f);
             ayuda.SetBounds(26, 58, AnchoDerecha - 52, 48);
             _btnVincular.SetBounds(20, 106, 196, 48);
@@ -183,20 +183,20 @@ internal sealed class FormularioSalaEspera : Form
     {
         Graphics g = e.Graphics;
         Dibujo.Calidad(g);
-        Dibujo.FondoTablero(g, new Rectangle(0, _y0, ClientSize.Width, ClientSize.Height - _y0));
-        Logotipo.Dibujar(g, new RectangleF(18, _y0 + 12, 250, 56));
+        Dibujo.FondoTablero(g, ClientRectangle);
+        Logotipo.Dibujar(g, new RectangleF(18, 12, 250, 56));
 
         using (Font titulo = Tema.Titulo(21f))
         using (SolidBrush rojo = new SolidBrush(Tema.Rojo))
         {
-            g.DrawString("Sala de espera", titulo, rojo, 286, _y0 + 4);
+            g.DrawString("Sala de espera", titulo, rojo, 286, 4);
         }
 
         int cantidad = _estado?.Instantanea.Jugadores.Length ?? 0;
         using Font subtitulo = Tema.Texto(10.5f, FontStyle.Bold);
         using SolidBrush verde = new SolidBrush(Tema.VerdeProfundo);
         g.DrawString($"Jugadores conectados: {cantidad} de {Juego.MaximoJugadores}  ·  se necesitan al menos {Juego.MinimoJugadores}",
-            subtitulo, verde, 292, _y0 + 52);
+            subtitulo, verde, 292, 52);
     }
 
     /// <inheritdoc/>
@@ -207,6 +207,12 @@ internal sealed class FormularioSalaEspera : Form
         _sesion.ErrorRecibido -= AlRecibirError;
         _sesion.Desconectado -= AlDesconectar;
         _sesion.CajeroCambiado -= ActualizarCajero;
+        if (_sesion.MonitorCajero != null)
+        {
+            _sesion.MonitorCajero.PicoPerdida -= AlPerderPico;
+        }
+
+        _opciones?.Close();
         _animacion.Dispose();
         _notificaciones.Dispose();
         base.OnFormClosed(e);
@@ -257,7 +263,7 @@ internal sealed class FormularioSalaEspera : Form
         ActualizarVinculacion();
         ActualizarCajero();
         ActualizarInicio();
-        Invalidate(new Rectangle(0, _y0, ColumnaDerecha, 80));
+        Invalidate(new Rectangle(0, 0, ColumnaDerecha, 80));
     }
 
     private void ActualizarTarjetas(bool animar)
@@ -441,7 +447,7 @@ internal sealed class FormularioSalaEspera : Form
             _lblVinculacion.ForeColor = Tema.TintaSuave;
             _lblVinculacion.Text = _sesion.ModoSinHardware
                 ? "En modo sin hardware no hace falta vincular tarjetas."
-                : "Conecte la Pico W (barra de arriba) o marque \"Modo sin hardware\".";
+                : "Conecte la Pico W en las opciones (engranaje) o marque \"Modo sin hardware\".";
         }
         else if (_lblVinculacion.ForeColor != Tema.Exito && _lblVinculacion.ForeColor != Tema.Error)
         {
@@ -490,12 +496,12 @@ internal sealed class FormularioSalaEspera : Form
         Dibujo.Calidad(g);
         // La dirección principal, lo más grande que quepa en la tarjeta.
         float tamanio = 16f;
-        Font grande = new Font("Consolas", tamanio, FontStyle.Bold);
+        Font grande = Tema.Monoespaciada(tamanio, FontStyle.Bold);
         while (tamanio > 9f && g.MeasureString(_direccionPrincipal, grande).Width > AnchoDerecha - 50)
         {
             grande.Dispose();
             tamanio -= 0.5f;
-            grande = new Font("Consolas", tamanio, FontStyle.Bold);
+            grande = Tema.Monoespaciada(tamanio, FontStyle.Bold);
         }
 
         using (grande)
@@ -533,6 +539,35 @@ internal sealed class FormularioSalaEspera : Form
         Close();
     }
 
+    private void AbrirOpciones()
+    {
+        if (_opciones == null || _opciones.IsDisposed)
+        {
+            _opciones = new FormularioOpciones(_sesion, SalirDeLaSala);
+            _opciones.Show(this);
+        }
+        else
+        {
+            _opciones.Activate();
+        }
+    }
+
+    private void SalirDeLaSala()
+    {
+        string aviso = _sesion.EsOrganizador
+            ? "Usted aloja al banco: si sale, la partida se cerrará para todos. ¿Desea salir?"
+            : "¿Desea salir de la sala de espera?";
+        if (MessageBox.Show(this, aviso, "Salir de la partida", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+        {
+            Close();
+        }
+    }
+
+    private void AlPerderPico()
+    {
+        _notificaciones.Mostrar("Se perdió la conexión con la Pico W. Revise el cable y conéctela desde las opciones (engranaje).", TipoNotificacion.Error, 8000);
+    }
+
     private static int? PrimeroSinTarjeta(EstadoRed estado)
     {
         foreach (EstadoJugador jugador in estado.Instantanea.Jugadores)
@@ -555,7 +590,7 @@ internal sealed class FormularioSalaEspera : Form
     /// Dirección principal para compartir (la primera IPv4 de la red local, o la del servidor al que se
     /// conectó) y el resto de direcciones del equipo, en texto pequeño.
     /// </summary>
-    private static (string Principal, string Otras) Direcciones(SesionJuego sesion)
+    internal static (string Principal, string Otras) Direcciones(SesionJuego sesion)
     {
         if (!sesion.EsOrganizador)
         {

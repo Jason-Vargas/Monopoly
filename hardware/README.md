@@ -143,10 +143,10 @@ La Pico se conecta a la computadora del **organizador**. Los demás jugadores no
 
 1. Cierre Thonny.
 2. Conecte la Pico por USB y abra el juego → **Crear partida**.
-3. En la barra **Cajero (Pico W)** (arriba en la sala de espera y en la ventana de juego del organizador):
+3. Abra las **opciones** con el engranaje (arriba a la derecha en la sala de espera y en la ventana de juego del organizador). En la sección **Raspberry Pi Pico W**:
    - elija el puerto COM y pulse **Conectar**, o
-   - pulse **Detectar**: el juego prueba cada puerto enviando `PING` y se conecta al que responde `PONG`.
-4. El indicador muestra `● Pico W en COM5: …` (verde) o `● Pico W desconectada: partida en pausa hasta conectarla` (naranja).
+   - pulse **Detectar automáticamente**: el juego prueba cada puerto enviando `PING` y se conecta al que responde `PONG`.
+4. El indicador queda en verde (`Conectada · Pico W en COM5`) o en rojo (desconectada: la partida espera a la Pico). **Probar LED** envía `PAGO_OK`; el **monitor** muestra las últimas líneas recibidas (`BOTON`, `RFID:...`) y la lista de **tarjetas vinculadas** indica quién ya tiene la suya.
 
 El puerto se abre a 115200 baudios, con `NewLine = "\n"` y **DTR y RTS activos** (sin DTR la Pico puede no enviar datos al PC). Un hilo aparte lee las líneas; las que no son del protocolo (por ejemplo, los mensajes de arranque de MicroPython) se ignoran. Cada 2 s se envía `PING`; si la Pico deja de responder durante ~7 s o se desconecta el cable, el organizador ve una **alerta**, la partida queda **en pausa** (nadie puede tirar ni pagar) sin perderse, y se puede pulsar **Conectar** de nuevo para seguir donde estaba.
 
@@ -154,8 +154,8 @@ En Windows, la Pico con MicroPython aparece como "Dispositivo serie USB (COMx)" 
 
 ### Registrar las tarjetas (sala de espera)
 
-1. Con la Pico conectada, el organizador elige un jugador en la lista y pulsa **Vincular tarjeta**.
-2. Se acerca la tarjeta al lector: queda asociada a ese jugador (la lista muestra "· tarjeta RFID"). Un mismo UID no puede quedar asignado a dos jugadores.
+1. Con la Pico conectada, el organizador hace clic en la tarjeta de un jugador y pulsa **Vincular a ...**.
+2. Se acerca la tarjeta al lector: queda asociada a ese jugador (su tarjeta muestra "✓ RFID vinculada"). Un mismo UID no puede quedar asignado a dos jugadores.
 3. **Cancelar vinculación** anula la espera. Los UID se normalizan (mayúsculas, sin espacios).
 4. **Iniciar partida** queda deshabilitado hasta que **todos** los jugadores tengan tarjeta vinculada (el servidor también lo valida).
 
@@ -179,7 +179,7 @@ Las pantallas de los jugadores **no tienen** botón de tirar ni de pagar: todo p
 
 ### Modo sin hardware (pruebas)
 
-En la barra del cajero del organizador hay una casilla **Modo sin hardware (pruebas)**, desactivada por defecto. Al activarla aparecen **Simular botón** y **Simular tarjeta del jugador en turno**, que recorren exactamente el mismo flujo que la Pico (incluida la compra); no se envía nada a la Pico y no hace falta vincular tarjetas. Los demás jugadores nunca ven esos botones.
+En las opciones del organizador (engranaje → Raspberry Pi Pico W) hay una casilla **Modo sin hardware (pruebas)**, desactivada por defecto. Al activarla aparecen **Simular botón** y **Simular tarjeta del jugador en turno**, que recorren exactamente el mismo flujo que la Pico (incluida la compra); no se envía nada a la Pico y no hace falta vincular tarjetas. Los demás jugadores nunca ven esos botones.
 
 En el código: `Monopoly.Core.Hardware` (`IDispositivoCajero`, `CajeroPico` sobre `SerialPort`, `CajeroSimulado`, `CajeroPorLineas`, `ProtocoloCajero`) y `Servidor.UsarCajero(...)`.
 
