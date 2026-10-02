@@ -1,30 +1,48 @@
 using System;
 using System.Drawing;
-using System.Text;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using Monopoly.App.Estilo;
+using Monopoly.Core.Estructuras;
+using Monopoly.Core.Hardware;
 using Monopoly.Core.Logica;
 using Monopoly.Core.Red;
 
 namespace Monopoly.App;
 
 /// <summary>
-/// Sala de espera: muestra los jugadores conectados y, al organizador, la dirección para compartir.
-/// Solo el organizador puede iniciar la partida, cuando hay entre 2 y 4 jugadores.
+/// Sala de espera: cada jugador conectado aparece como una tarjeta con su ficha, color, nombre y el estado
+/// de su tarjeta RFID; a la derecha, la dirección del banco (con botón para copiarla), el estado de la
+/// Raspberry Pi Pico W y, para el organizador, la vinculación de tarjetas. Solo el organizador ve
+/// "Iniciar partida", deshabilitado con una explicación mientras falten jugadores o tarjetas.
 /// </summary>
 internal sealed class FormularioSalaEspera : Form
 {
+    private const int AnchoVentana = 1000;
+    private const int ColumnaDerecha = 628;
+    private const int AnchoDerecha = 356;
+
     private readonly SesionJuego _sesion;
-    private readonly ListBox _lstJugadores = new ListBox { IntegralHeight = false };
-    private readonly ListBox _lstEventos = new ListBox { IntegralHeight = false, HorizontalScrollbar = true };
-    private readonly Label _lblEstado = new Label { AutoSize = false };
-    private readonly Button _btnIniciar = new Button { Text = "Iniciar partida" };
-    private readonly Button _btnVincular = new Button { Text = "Vincular tarjeta" };
-    private readonly Button _btnCancelarVinculacion = new Button { Text = "Cancelar vinculación" };
-    private readonly Label _lblVinculacion = new Label { AutoSize = false, ForeColor = Color.DimGray };
+    private readonly TarjetaJugadorSala[] _tarjetas = new TarjetaJugadorSala[Juego.MaximoJugadores];
+    private readonly TarjetaPanel _tarjetaPico = new TarjetaPanel { Titulo = "Cajero (Pico W)", TamanioTitulo = 13f };
+    private readonly Etiqueta _lblPico = new Etiqueta(string.Empty, 9f);
+    private readonly ListBox _lstEventos = new ListBox { IntegralHeight = false, BorderStyle = BorderStyle.None };
+    private readonly Etiqueta _lblEstado = new Etiqueta(string.Empty, 10.5f, FontStyle.Bold, Tema.Tinta);
+    private readonly BotonRedondeado _btnIniciar = new BotonRedondeado { Text = "Iniciar partida", Estilo = EstiloBoton.Exito };
+    private readonly BotonRedondeado _btnVincular = new BotonRedondeado { Text = "Vincular tarjeta" };
+    private readonly BotonRedondeado _btnCancelarVinculacion = new BotonRedondeado { Text = "Cancelar", Estilo = EstiloBoton.Secundario };
+    private readonly Etiqueta _lblVinculacion = new Etiqueta(string.Empty, 9f);
+    private readonly Notificaciones _notificaciones;
+    private readonly Timer _animacion = new Timer { Interval = 16 };
+    private readonly string _direccionPrincipal;
+    private readonly string _otrasDirecciones;
+    private readonly int _y0;
     private BarraCajero? _barraCajero;
-    private EstadoJugador[] _jugadoresMostrados = new EstadoJugador[0];
+    private EstadoRed? _estado;
+    private int? _seleccionado;
     private int? _esperandoTarjetaDe;
     private bool _partidaIniciada;
+    private bool _primerEstado = true;
 
     /// <summary>
     /// Crea la sala de espera de una sesión ya aceptada por el servidor.
@@ -34,97 +52,121 @@ internal sealed class FormularioSalaEspera : Form
         _sesion = sesion;
         AutoScaleDimensions = new SizeF(96f, 96f);
         AutoScaleMode = AutoScaleMode.Dpi;
-        Text = $"Sala de espera — {sesion.Nombre}";
-        FormBorderStyle = FormBorderStyle.FixedDialog;
+        Text = $"Sala de espera — {sesion.Nombre} · {Tema.NombreJuego}";
+        FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        int ancho = sesion.EsOrganizador ? 780 : 560;
-        ClientSize = new Size(ancho + 40, sesion.EsOrganizador ? 640 : 600);
-        BackColor = Paleta.FondoPanel;
-        Font = new Font(Paleta.Fuente, 10f);
+        BackColor = Tema.VerdeMenta;
+        Font = Tema.Texto(10f);
+        DoubleBuffered = true;
+        _notificaciones = new Notificaciones(this);
+        (_direccionPrincipal, _otrasDirecciones) = Direcciones(sesion);
 
-        int y = 16;
         if (sesion.EsOrganizador)
         {
             // El organizador aloja al banco y, por lo tanto, al cajero (Pico W por USB).
             _barraCajero = new BarraCajero(sesion) { Dock = DockStyle.Top };
             Controls.Add(_barraCajero);
-            y += 34;
-
-            Label aviso = new Label { Text = "Usted aloja al banco. Comparta esta dirección con los demás:", AutoSize = false };
-            aviso.SetBounds(20, y, 560, 42);
-            Controls.Add(aviso);
-            TextBox direcciones = new TextBox
-            {
-                ReadOnly = true,
-                Multiline = true,
-                TabStop = false,
-                ScrollBars = ScrollBars.Vertical,
-                Font = new Font("Consolas", 11f, FontStyle.Bold),
-                BackColor = Color.White,
-                Text = TextoDirecciones(sesion.Puerto),
-            };
-            direcciones.SetBounds(20, y + 44, 560, 76);
-            Controls.Add(direcciones);
-            y += 134;
+            _y0 = _barraCajero.Height;
         }
-        else
+
+        int alto = (sesion.EsOrganizador ? 670 : 600) + _y0;
+        ClientSize = new Size(AnchoVentana, alto);
+        int yBarraInferior = alto - 72;
+
+        // Jugadores: cuadrícula de 2 × 2.
+        for (int i = 0; i < _tarjetas.Length; i++)
         {
-            Controls.Add(new Label { Text = $"Conectado al banco en {sesion.Host}:{sesion.Puerto}.", Location = new Point(20, y), AutoSize = true });
-            y += 36;
+            TarjetaJugadorSala tarjeta = new TarjetaJugadorSala { Seleccionable = sesion.EsOrganizador };
+            tarjeta.SetBounds(16 + ((i % 2) * 302), _y0 + 84 + ((i / 2) * 136), 300, 134);
+            tarjeta.Click += (s, e) => SeleccionarJugador(tarjeta.Jugador?.Id);
+            _tarjetas[i] = tarjeta;
+            Controls.Add(tarjeta);
         }
 
-        Controls.Add(new Label { Text = "Jugadores conectados:", Location = new Point(20, y), AutoSize = true, Font = new Font(Paleta.Fuente, 10f, FontStyle.Bold) });
-        _lstJugadores.SetBounds(20, y + 24, sesion.EsOrganizador ? ancho - 220 : ancho, 128);
-        _lstJugadores.Font = new Font(Paleta.Fuente, 10.5f);
-        Controls.Add(_lstJugadores);
+        // Actividad (registro de eventos).
+        TarjetaPanel actividad = new TarjetaPanel { Titulo = "Actividad", TamanioTitulo = 12f };
+        int yActividad = _y0 + 356;
+        actividad.SetBounds(16, yActividad, 604, yBarraInferior - yActividad - 4);
+        _lstEventos.BackColor = Tema.Marfil;
+        _lstEventos.ForeColor = Tema.TintaSuave;
+        _lstEventos.Font = Tema.Texto(9.5f);
+        _lstEventos.SetBounds(24, 62, actividad.Width - 48, actividad.Height - 80);
+        actividad.Controls.Add(_lstEventos);
+        Controls.Add(actividad);
+
+        // Dirección del banco, con botón para copiarla.
+        TarjetaPanel direccion = new TarjetaPanel
+        {
+            Titulo = sesion.EsOrganizador ? "Dirección del banco" : "Conectado al banco",
+            TamanioTitulo = 13f,
+            Icono = (g, a) => Iconos.Red(g, a, Tema.VerdeProfundo),
+        };
+        direccion.SetBounds(ColumnaDerecha, _y0 + 76, AnchoDerecha, 170);
+        direccion.Paint += (s, e) => DibujarDireccion(e.Graphics);
+        BotonRedondeado copiar = new BotonRedondeado { Text = "Copiar", Estilo = EstiloBoton.Secundario, Radio = 10f };
+        copiar.Font = Tema.Texto(9.5f, FontStyle.Bold);
+        copiar.SetBounds(AnchoDerecha - 130, 112, 112, 42);
+        copiar.Click += (s, e) => CopiarDireccion();
+        direccion.Controls.Add(copiar);
+        Controls.Add(direccion);
+
+        // Estado de la Pico W.
+        _tarjetaPico.Icono = (g, a) => Iconos.Chip(g, a, ColorPico());
+        _tarjetaPico.SetBounds(ColumnaDerecha, _y0 + 250, AnchoDerecha, 102);
+        _lblPico.SetBounds(26, 60, AnchoDerecha - 50, 28);
+        _tarjetaPico.Controls.Add(_lblPico);
+        Controls.Add(_tarjetaPico);
 
         if (sesion.EsOrganizador)
         {
             // Registro de tarjetas: el organizador elige un jugador y la próxima tarjeta leída queda vinculada.
-            int x = 20 + ancho - 205;
-            _btnVincular.SetBounds(x, y + 24, 205, 36);
+            TarjetaPanel rfid = new TarjetaPanel { Titulo = "Tarjetas RFID", TamanioTitulo = 13f, Icono = (g, a) => Iconos.TarjetaRfid(g, a, Tema.Rojo) };
+            rfid.SetBounds(ColumnaDerecha, _y0 + 356, AnchoDerecha, yBarraInferior - (_y0 + 356) - 4);
+            Etiqueta ayuda = new Etiqueta("Haga clic en un jugador, pulse \"Vincular\" y acerque su tarjeta al lector.", 9f);
+            ayuda.SetBounds(26, 58, AnchoDerecha - 52, 48);
+            _btnVincular.SetBounds(20, 106, 196, 48);
             _btnVincular.Click += (s, e) => VincularTarjetaSeleccionado();
-            _btnCancelarVinculacion.SetBounds(x, y + 64, 205, 30);
+            _btnCancelarVinculacion.SetBounds(220, 106, 116, 48);
             _btnCancelarVinculacion.Click += (s, e) => CancelarVinculacion();
-            _lblVinculacion.SetBounds(x, y + 98, 205, 56);
-            _lblVinculacion.Font = new Font(Paleta.Fuente, 8.5f);
-            Controls.Add(_btnVincular);
-            Controls.Add(_btnCancelarVinculacion);
-            Controls.Add(_lblVinculacion);
-            _lstJugadores.SelectedIndexChanged += (s, e) => ActualizarVinculacion();
-            _sesion.CajeroCambiado += ActualizarVinculacion;
+            _lblVinculacion.SetBounds(26, 158, AnchoDerecha - 52, rfid.Height - 176);
+            rfid.Controls.Add(ayuda);
+            rfid.Controls.Add(_btnVincular);
+            rfid.Controls.Add(_btnCancelarVinculacion);
+            rfid.Controls.Add(_lblVinculacion);
+            Controls.Add(rfid);
         }
 
-        _lblEstado.SetBounds(20, y + 158, ancho, 44);
+        // Barra inferior: explicación y "Iniciar partida".
+        _lblEstado.SetBounds(24, yBarraInferior + 8, sesion.EsOrganizador ? 600 : AnchoVentana - 48, 52);
+        _lblEstado.TextAlign = ContentAlignment.MiddleLeft;
         Controls.Add(_lblEstado);
-
-        _btnIniciar.SetBounds(20, y + 206, ancho, 42);
+        _btnIniciar.SetBounds(ColumnaDerecha, yBarraInferior + 4, AnchoDerecha, 60);
+        _btnIniciar.Font = Tema.Texto(12.5f, FontStyle.Bold);
         _btnIniciar.Visible = sesion.EsOrganizador;
         _btnIniciar.Enabled = false;
-        _btnIniciar.BackColor = Color.FromArgb(40, 140, 70);
-        _btnIniciar.ForeColor = Color.White;
-        _btnIniciar.FlatStyle = FlatStyle.Flat;
         _btnIniciar.Click += (s, e) => _sesion.Solicitar(cliente => cliente.IniciarPartida());
         Controls.Add(_btnIniciar);
 
-        int yEventos = sesion.EsOrganizador ? y + 258 : y + 206;
-        _lstEventos.SetBounds(20, yEventos, ancho, ClientSize.Height - yEventos - 16);
-        _lstEventos.Font = new Font(Paleta.Fuente, 9f);
-        _lstEventos.ForeColor = Color.DimGray;
-        Controls.Add(_lstEventos);
-
+        _animacion.Tick += (s, e) => AnimarTarjetas();
         _sesion.EstadoActualizado += AlActualizarEstado;
         _sesion.EventoRecibido += AlRecibirEvento;
         _sesion.ErrorRecibido += AlRecibirError;
         _sesion.Desconectado += AlDesconectar;
+        _sesion.CajeroCambiado += ActualizarCajero;
         _sesion.RecorrerEventos(texto => _lstEventos.Items.Add(texto));
+        ActualizarCajero();
     }
 
     /// <summary>
     /// La partida comenzó: hay que pasar a la ventana de juego.
     /// </summary>
     public event Action? PartidaIniciada;
+
+    /// <summary>
+    /// Indica si la ventana se cerró para volver al inicio y reconectarse.
+    /// </summary>
+    public bool VolverParaReconectar { get; private set; }
 
     /// <inheritdoc/>
     protected override void OnShown(EventArgs e)
@@ -137,13 +179,36 @@ internal sealed class FormularioSalaEspera : Form
     }
 
     /// <inheritdoc/>
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        Dibujo.Calidad(g);
+        Dibujo.FondoTablero(g, new Rectangle(0, _y0, ClientSize.Width, ClientSize.Height - _y0));
+        Logotipo.Dibujar(g, new RectangleF(18, _y0 + 12, 250, 56));
+
+        using (Font titulo = Tema.Titulo(21f))
+        using (SolidBrush rojo = new SolidBrush(Tema.Rojo))
+        {
+            g.DrawString("Sala de espera", titulo, rojo, 286, _y0 + 4);
+        }
+
+        int cantidad = _estado?.Instantanea.Jugadores.Length ?? 0;
+        using Font subtitulo = Tema.Texto(10.5f, FontStyle.Bold);
+        using SolidBrush verde = new SolidBrush(Tema.VerdeProfundo);
+        g.DrawString($"Jugadores conectados: {cantidad} de {Juego.MaximoJugadores}  ·  se necesitan al menos {Juego.MinimoJugadores}",
+            subtitulo, verde, 292, _y0 + 52);
+    }
+
+    /// <inheritdoc/>
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         _sesion.EstadoActualizado -= AlActualizarEstado;
         _sesion.EventoRecibido -= AlRecibirEvento;
         _sesion.ErrorRecibido -= AlRecibirError;
         _sesion.Desconectado -= AlDesconectar;
-        _sesion.CajeroCambiado -= ActualizarVinculacion;
+        _sesion.CajeroCambiado -= ActualizarCajero;
+        _animacion.Dispose();
+        _notificaciones.Dispose();
         base.OnFormClosed(e);
     }
 
@@ -162,43 +227,98 @@ internal sealed class FormularioSalaEspera : Form
             return;
         }
 
-        int seleccionado = _lstJugadores.SelectedIndex;
-        _jugadoresMostrados = instantanea.Jugadores;
-        _lstJugadores.BeginUpdate();
-        _lstJugadores.Items.Clear();
-        for (int i = 0; i < instantanea.Jugadores.Length; i++)
-        {
-            EstadoJugador j = instantanea.Jugadores[i];
-            string marcas = (i == 0 ? " · organizador" : string.Empty) + (j.Id == _sesion.IdJugador ? " · usted" : string.Empty)
-                + (j.TieneTarjetaFisica ? " · tarjeta RFID" : string.Empty)
-                + (estado.EstaConectado(j.Id) ? string.Empty : " · DESCONECTADO");
-            _lstJugadores.Items.Add($"{j.Id}. {j.Nombre} — ficha {j.ColorFicha}{marcas}");
-        }
-
-        if (seleccionado >= 0 && seleccionado < _lstJugadores.Items.Count)
-        {
-            _lstJugadores.SelectedIndex = seleccionado;
-        }
-
-        _lstJugadores.EndUpdate();
+        EstadoRed? anterior = _estado;
+        _estado = estado;
 
         // Si llegó la tarjeta del jugador que se estaba vinculando, termina la espera.
-        if (_esperandoTarjetaDe.HasValue && estado.BuscarJugador(_esperandoTarjetaDe.Value)?.TieneTarjetaFisica == true)
+        if (_esperandoTarjetaDe.HasValue && estado.BuscarJugador(_esperandoTarjetaDe.Value)?.TieneTarjetaFisica == true
+            && anterior?.BuscarJugador(_esperandoTarjetaDe.Value)?.TieneTarjetaFisica != true)
         {
             string nombre = estado.BuscarJugador(_esperandoTarjetaDe.Value)!.Nombre;
             _esperandoTarjetaDe = null;
-            _lblVinculacion.ForeColor = Color.FromArgb(20, 110, 40);
+            _lblVinculacion.ForeColor = Tema.Exito;
             _lblVinculacion.Text = $"Tarjeta vinculada a {nombre}.";
+            _notificaciones.Mostrar($"Tarjeta vinculada a {nombre}.", TipoNotificacion.Exito);
+            _seleccionado = PrimeroSinTarjeta(estado);
         }
 
-        ActualizarVinculacion();
+        if (_seleccionado.HasValue && estado.BuscarJugador(_seleccionado.Value) == null)
+        {
+            _seleccionado = null;
+        }
 
+        if (_sesion.EsOrganizador && !_seleccionado.HasValue && !_esperandoTarjetaDe.HasValue)
+        {
+            _seleccionado = PrimeroSinTarjeta(estado);
+        }
+
+        ActualizarTarjetas(!_primerEstado);
+        _primerEstado = false;
+        ActualizarVinculacion();
+        ActualizarCajero();
+        ActualizarInicio();
+        Invalidate(new Rectangle(0, _y0, ColumnaDerecha, 80));
+    }
+
+    private void ActualizarTarjetas(bool animar)
+    {
+        EstadoJugador[] jugadores = _estado?.Instantanea.Jugadores ?? new EstadoJugador[0];
+        bool hayAnimacion = false;
+        for (int i = 0; i < _tarjetas.Length; i++)
+        {
+            TarjetaJugadorSala tarjeta = _tarjetas[i];
+            EstadoJugador? jugador = i < jugadores.Length ? jugadores[i] : null;
+            tarjeta.EsOrganizador = i == 0 && jugador != null;
+            tarjeta.EsUsted = jugador != null && jugador.Id == _sesion.IdJugador;
+            tarjeta.Conectado = jugador == null || _estado!.EstaConectado(jugador.Id);
+            tarjeta.Seleccionada = jugador != null && _sesion.EsOrganizador && jugador.Id == _seleccionado;
+            tarjeta.EsperandoTarjeta = jugador != null && jugador.Id == _esperandoTarjetaDe;
+            tarjeta.MostrarJugador(jugador, animar);
+            hayAnimacion |= tarjeta.Animando;
+        }
+
+        if (hayAnimacion)
+        {
+            _animacion.Start();
+        }
+    }
+
+    private void AnimarTarjetas()
+    {
+        bool sigue = false;
+        foreach (TarjetaJugadorSala tarjeta in _tarjetas)
+        {
+            if (tarjeta.Animando)
+            {
+                sigue = true;
+                tarjeta.Invalidate();
+            }
+        }
+
+        if (!sigue)
+        {
+            _animacion.Stop();
+            foreach (TarjetaJugadorSala tarjeta in _tarjetas)
+            {
+                tarjeta.Invalidate();
+            }
+        }
+    }
+
+    private void ActualizarInicio()
+    {
+        if (_estado == null)
+        {
+            return;
+        }
+
+        InstantaneaJuego instantanea = _estado.Instantanea;
         int cantidad = instantanea.Jugadores.Length;
         bool cantidadValida = cantidad >= Juego.MinimoJugadores && cantidad <= Juego.MaximoJugadores;
 
         // En modo hardware todos necesitan una tarjeta física vinculada (el servidor también lo exige).
         string sinTarjeta = string.Empty;
-        if (!estado.ModoSinHardware)
+        if (!_estado.ModoSinHardware)
         {
             foreach (EstadoJugador j in instantanea.Jugadores)
             {
@@ -209,30 +329,28 @@ internal sealed class FormularioSalaEspera : Form
             }
         }
 
-        bool puedeIniciar = cantidadValida && sinTarjeta.Length == 0;
-        _btnIniciar.Enabled = _sesion.EsOrganizador && puedeIniciar;
-        _lblEstado.ForeColor = Color.Black;
+        _btnIniciar.Enabled = _sesion.EsOrganizador && cantidadValida && sinTarjeta.Length == 0;
         string organizador = cantidad > 0 ? instantanea.Jugadores[0].Nombre : "el organizador";
-        string texto = $"Jugadores: {cantidad}/{Juego.MaximoJugadores}. ";
         if (!_sesion.EsOrganizador)
         {
-            texto += $"Esperando a que {organizador} inicie la partida...";
+            _lblEstado.ForeColor = Tema.VerdeProfundo;
+            _lblEstado.Text = $"Esperando a que {organizador} inicie la partida...";
         }
         else if (!cantidadValida)
         {
-            texto += $"Se necesitan al menos {Juego.MinimoJugadores} para iniciar.";
+            _lblEstado.ForeColor = Tema.Advertencia;
+            _lblEstado.Text = $"Faltan jugadores: se necesitan al menos {Juego.MinimoJugadores}. Comparta la dirección del banco.";
         }
         else if (sinTarjeta.Length > 0)
         {
-            _lblEstado.ForeColor = Color.FromArgb(200, 100, 0);
-            texto += $"Vincule una tarjeta a: {sinTarjeta} (o active el modo sin hardware para pruebas).";
+            _lblEstado.ForeColor = Tema.Advertencia;
+            _lblEstado.Text = $"Falta vincular la tarjeta RFID de: {sinTarjeta}.";
         }
         else
         {
-            texto += "Puede iniciar la partida cuando estén todos.";
+            _lblEstado.ForeColor = Tema.Exito;
+            _lblEstado.Text = "Todo listo: puede iniciar la partida cuando estén todos.";
         }
-
-        _lblEstado.Text = texto;
     }
 
     private void AlRecibirEvento(string texto)
@@ -243,31 +361,43 @@ internal sealed class FormularioSalaEspera : Form
 
     private void AlRecibirError(string mensaje)
     {
-        _lblEstado.ForeColor = Color.FromArgb(170, 20, 20);
-        _lblEstado.Text = mensaje;
+        _notificaciones.Mostrar(mensaje, TipoNotificacion.Error, 6000);
         if (_esperandoTarjetaDe.HasValue)
         {
             // Por ejemplo, "La tarjeta X ya está vinculada a Beto": la espera terminó sin vincular.
             _esperandoTarjetaDe = null;
-            _lblVinculacion.ForeColor = Color.FromArgb(170, 20, 20);
+            _lblVinculacion.ForeColor = Tema.Error;
             _lblVinculacion.Text = mensaje;
+            ActualizarTarjetas(false);
             ActualizarVinculacion();
         }
     }
 
-    private void VincularTarjetaSeleccionado()
+    private void SeleccionarJugador(int? id)
     {
-        int indice = _lstJugadores.SelectedIndex;
-        if (indice < 0 || indice >= _jugadoresMostrados.Length)
+        if (!_sesion.EsOrganizador || !id.HasValue || _esperandoTarjetaDe.HasValue)
         {
             return;
         }
 
-        EstadoJugador jugador = _jugadoresMostrados[indice];
+        _seleccionado = id;
+        ActualizarTarjetas(false);
+        ActualizarVinculacion();
+    }
+
+    private void VincularTarjetaSeleccionado()
+    {
+        EstadoJugador? jugador = _seleccionado.HasValue ? _estado?.BuscarJugador(_seleccionado.Value) : null;
+        if (jugador == null)
+        {
+            return;
+        }
+
         _esperandoTarjetaDe = jugador.Id;
-        _lblVinculacion.ForeColor = Color.FromArgb(40, 90, 170);
+        _lblVinculacion.ForeColor = Tema.Informacion;
         _lblVinculacion.Text = $"Acerque al lector la tarjeta de {jugador.Nombre}...";
         _sesion.Solicitar(cliente => cliente.VincularTarjeta(jugador.Id));
+        ActualizarTarjetas(false);
         ActualizarVinculacion();
     }
 
@@ -276,8 +406,11 @@ internal sealed class FormularioSalaEspera : Form
         _esperandoTarjetaDe = null;
         _lblVinculacion.Text = string.Empty;
         _sesion.Solicitar(cliente => cliente.VincularTarjeta(0));
+        ActualizarTarjetas(false);
         ActualizarVinculacion();
     }
+
+    private bool PicoConectadaAqui => _sesion.Cajero.EsFisico && _sesion.Cajero.Estado == EstadoCajero.Conectado;
 
     private void ActualizarVinculacion()
     {
@@ -286,23 +419,107 @@ internal sealed class FormularioSalaEspera : Form
             return;
         }
 
-        bool picoConectada = _sesion.Cajero.EsFisico && _sesion.Cajero.Estado == Core.Hardware.EstadoCajero.Conectado;
+        bool picoConectada = PicoConectadaAqui;
         if (!picoConectada && _esperandoTarjetaDe.HasValue)
         {
             _esperandoTarjetaDe = null;
             _lblVinculacion.Text = string.Empty;
+            ActualizarTarjetas(false);
         }
 
-        _btnVincular.Enabled = picoConectada && _lstJugadores.SelectedIndex >= 0;
+        EstadoJugador? seleccionado = _seleccionado.HasValue ? _estado?.BuscarJugador(_seleccionado.Value) : null;
+        _btnVincular.Enabled = picoConectada && seleccionado != null && !_esperandoTarjetaDe.HasValue;
+        _btnVincular.Text = seleccionado != null ? $"Vincular a {Corto(seleccionado.Nombre)}" : "Vincular tarjeta";
         _btnCancelarVinculacion.Enabled = _esperandoTarjetaDe.HasValue;
-        if (!picoConectada && _lblVinculacion.Text.Length == 0)
+        if (_esperandoTarjetaDe.HasValue)
         {
-            _lblVinculacion.ForeColor = Color.DimGray;
-            _lblVinculacion.Text = "Conecte la Pico W (arriba) para vincular tarjetas.";
+            return;
         }
-        else if (picoConectada && !_esperandoTarjetaDe.HasValue && _lblVinculacion.ForeColor == Color.DimGray)
+
+        if (!picoConectada)
         {
-            _lblVinculacion.Text = "Elija un jugador y pulse \"Vincular tarjeta\".";
+            _lblVinculacion.ForeColor = Tema.TintaSuave;
+            _lblVinculacion.Text = _sesion.ModoSinHardware
+                ? "En modo sin hardware no hace falta vincular tarjetas."
+                : "Conecte la Pico W (barra de arriba) o marque \"Modo sin hardware\".";
+        }
+        else if (_lblVinculacion.ForeColor != Tema.Exito && _lblVinculacion.ForeColor != Tema.Error)
+        {
+            _lblVinculacion.ForeColor = Tema.TintaSuave;
+            _lblVinculacion.Text = seleccionado == null ? "Elija un jugador haciendo clic en su tarjeta." : string.Empty;
+        }
+    }
+
+    private void ActualizarCajero()
+    {
+        string texto;
+        if (ModoSinHardware)
+        {
+            texto = "Modo sin hardware (pruebas)";
+        }
+        else if (PicoConectada)
+        {
+            texto = _sesion.EsOrganizador ? $"Conectada · {_sesion.Cajero.Descripcion}" : "Conectada al banco";
+        }
+        else
+        {
+            texto = "Desconectada";
+        }
+
+        _lblPico.ForeColor = ColorPico();
+        _lblPico.ColorIndicador = ColorPico();
+        _lblPico.Font = Tema.Texto(10.5f, FontStyle.Bold);
+        _lblPico.Text = texto;
+        _lblPico.Invalidate();
+        _tarjetaPico.Invalidate();
+        ActualizarVinculacion();
+        ActualizarInicio();
+    }
+
+    private bool ModoSinHardware => _sesion.EsOrganizador ? _sesion.ModoSinHardware : _estado?.ModoSinHardware == true;
+
+    private bool PicoConectada => _sesion.EsOrganizador ? PicoConectadaAqui : _estado?.CajeroConectado == true;
+
+    private Color ColorPico()
+    {
+        return ModoSinHardware ? Tema.Informacion : PicoConectada ? Tema.Exito : Tema.Error;
+    }
+
+    private void DibujarDireccion(Graphics g)
+    {
+        Dibujo.Calidad(g);
+        // La dirección principal, lo más grande que quepa en la tarjeta.
+        float tamanio = 16f;
+        Font grande = new Font("Consolas", tamanio, FontStyle.Bold);
+        while (tamanio > 9f && g.MeasureString(_direccionPrincipal, grande).Width > AnchoDerecha - 50)
+        {
+            grande.Dispose();
+            tamanio -= 0.5f;
+            grande = new Font("Consolas", tamanio, FontStyle.Bold);
+        }
+
+        using (grande)
+        using (SolidBrush tinta = new SolidBrush(Tema.Tinta))
+        {
+            g.DrawString(_direccionPrincipal, grande, tinta, 22, 74);
+        }
+
+        using Font pequenia = Tema.Texto(8.5f);
+        using SolidBrush suave = new SolidBrush(Tema.TintaSuave);
+        using StringFormat corte = new StringFormat { Trimming = StringTrimming.EllipsisCharacter };
+        g.DrawString(_otrasDirecciones, pequenia, suave, new RectangleF(24, 110, AnchoDerecha - 172, 46), corte);
+    }
+
+    private void CopiarDireccion()
+    {
+        try
+        {
+            Clipboard.SetText(_direccionPrincipal);
+            _notificaciones.Mostrar($"Dirección copiada: {_direccionPrincipal}", TipoNotificacion.Exito);
+        }
+        catch (ExternalException)
+        {
+            _notificaciones.Mostrar("No se pudo usar el portapapeles; copie la dirección a mano.", TipoNotificacion.Error);
         }
     }
 
@@ -316,16 +533,44 @@ internal sealed class FormularioSalaEspera : Form
         Close();
     }
 
-    /// <summary>
-    /// Indica si la ventana se cerró para volver al inicio y reconectarse.
-    /// </summary>
-    public bool VolverParaReconectar { get; private set; }
-
-    private static string TextoDirecciones(int puerto)
+    private static int? PrimeroSinTarjeta(EstadoRed estado)
     {
-        StringBuilder texto = new StringBuilder();
-        Servidor.ObtenerIPv4Locales().Recorrer(ip => texto.Append(ip).Append(':').Append(puerto).Append("\r\n"));
-        texto.Append("127.0.0.1:").Append(puerto).Append("  (esta computadora)");
-        return texto.ToString();
+        foreach (EstadoJugador jugador in estado.Instantanea.Jugadores)
+        {
+            if (!jugador.TieneTarjetaFisica)
+            {
+                return jugador.Id;
+            }
+        }
+
+        return null;
+    }
+
+    private static string Corto(string nombre)
+    {
+        return nombre.Length <= 10 ? nombre : nombre.Substring(0, 9) + "…";
+    }
+
+    /// <summary>
+    /// Dirección principal para compartir (la primera IPv4 de la red local, o la del servidor al que se
+    /// conectó) y el resto de direcciones del equipo, en texto pequeño.
+    /// </summary>
+    private static (string Principal, string Otras) Direcciones(SesionJuego sesion)
+    {
+        if (!sesion.EsOrganizador)
+        {
+            return ($"{sesion.Host}:{sesion.Puerto}", "Dirección del banco del organizador.");
+        }
+
+        ListaSimple<string> ips = Servidor.ObtenerIPv4Locales();
+        string principal = ips.Cantidad > 0 ? $"{ips.Obtener(0)}:{sesion.Puerto}" : $"127.0.0.1:{sesion.Puerto}";
+        string otras = string.Empty;
+        for (int i = 1; i < ips.Cantidad; i++)
+        {
+            otras += (otras.Length > 0 ? " · " : "También: ") + ips.Obtener(i);
+        }
+
+        otras += (otras.Length > 0 ? "\n" : string.Empty) + $"En esta computadora: 127.0.0.1:{sesion.Puerto}";
+        return (principal, otras);
     }
 }

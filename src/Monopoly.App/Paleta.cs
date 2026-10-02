@@ -1,4 +1,5 @@
 using System.Drawing;
+using Monopoly.App.Estilo;
 using Monopoly.Core.Modelo;
 
 namespace Monopoly.App;
@@ -9,7 +10,7 @@ namespace Monopoly.App;
 internal static class Paleta
 {
     /// <summary>Verde claro del tablero clásico.</summary>
-    public static readonly Color FondoTablero = Color.FromArgb(206, 230, 208);
+    public static readonly Color FondoTablero = Tema.VerdeMenta;
 
     /// <summary>Color de la mesa alrededor del tablero.</summary>
     public static readonly Color Mesa = Color.FromArgb(34, 76, 52);
@@ -30,24 +31,9 @@ internal static class Paleta
     public const string Fuente = "Segoe UI";
 
     /// <summary>
-    /// Color de la franja de un grupo de propiedades (vacío para ferrocarriles y servicios).
+    /// Color de la franja de un grupo de propiedades (del sistema de estilo, <see cref="Tema"/>).
     /// </summary>
-    public static Color ColorGrupo(GrupoPropiedad grupo)
-    {
-        return grupo switch
-        {
-            GrupoPropiedad.Marron => Color.FromArgb(149, 84, 54),
-            GrupoPropiedad.Celeste => Color.FromArgb(170, 224, 250),
-            GrupoPropiedad.Rosa => Color.FromArgb(217, 58, 150),
-            GrupoPropiedad.Naranja => Color.FromArgb(247, 148, 29),
-            GrupoPropiedad.Rojo => Color.FromArgb(237, 27, 36),
-            GrupoPropiedad.Amarillo => Color.FromArgb(254, 242, 0),
-            GrupoPropiedad.Verde => Color.FromArgb(31, 178, 90),
-            GrupoPropiedad.AzulOscuro => Color.FromArgb(0, 114, 187),
-            GrupoPropiedad.Ferrocarril => Color.FromArgb(60, 60, 60),
-            _ => Color.FromArgb(150, 150, 150),
-        };
-    }
+    public static Color ColorGrupo(GrupoPropiedad grupo) => Tema.ColorGrupo(grupo);
 
     /// <summary>
     /// Indica si el grupo lleva franja de color en la casilla.
@@ -58,20 +44,9 @@ internal static class Paleta
     }
 
     /// <summary>
-    /// Color de la ficha de un jugador.
+    /// Color de la ficha de un jugador (del sistema de estilo, <see cref="Tema"/>).
     /// </summary>
-    public static Color ColorFicha(ColorFicha color)
-    {
-        return color switch
-        {
-            Core.Modelo.ColorFicha.Rojo => Color.FromArgb(214, 40, 40),
-            Core.Modelo.ColorFicha.Azul => Color.FromArgb(30, 96, 214),
-            Core.Modelo.ColorFicha.Verde => Color.FromArgb(22, 150, 64),
-            Core.Modelo.ColorFicha.Amarillo => Color.FromArgb(238, 190, 0),
-            Core.Modelo.ColorFicha.Morado => Color.FromArgb(128, 60, 170),
-            _ => Color.FromArgb(240, 120, 20),
-        };
-    }
+    public static Color ColorFicha(ColorFicha color) => Tema.ColorFicha(color);
 
     /// <summary>
     /// Acorta los nombres largos para que quepan en las casillas.

@@ -411,7 +411,28 @@ public sealed class Servidor : IDisposable
             return;
         }
 
-        ResultadoAccion resultado = _juego.UnirJugador(nombre);
+        // Ficha elegida (opcional): CONECTAR|nombre|forma|color.
+        FormaFicha? forma = null;
+        ColorFicha? color = null;
+        try
+        {
+            if (mensaje.CantidadCampos > 1 && mensaje.Campo(1).Length > 0)
+            {
+                forma = mensaje.Enumeracion<FormaFicha>(1);
+            }
+
+            if (mensaje.CantidadCampos > 2 && mensaje.Campo(2).Length > 0)
+            {
+                color = mensaje.Enumeracion<ColorFicha>(2);
+            }
+        }
+        catch (FormatException ex)
+        {
+            ResponderError(conexion, $"Ficha no válida: {ex.Message}");
+            return;
+        }
+
+        ResultadoAccion resultado = _juego.UnirJugador(nombre, forma, color);
         if (!resultado.Exito)
         {
             ResponderError(conexion, resultado.Mensaje);

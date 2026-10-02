@@ -23,9 +23,10 @@ public class Jugador
     /// <param name="nombre">Nombre visible.</param>
     /// <param name="colorFicha">Color de su ficha.</param>
     /// <param name="saldoInicial">Saldo inicial (0 o más).</param>
+    /// <param name="formaFicha">Forma de su ficha.</param>
     /// <exception cref="ArgumentException">Si el nombre está vacío.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Si el saldo inicial es negativo.</exception>
-    public Jugador(int id, string nombre, ColorFicha colorFicha, int saldoInicial = SaldoInicial)
+    public Jugador(int id, string nombre, ColorFicha colorFicha, int saldoInicial = SaldoInicial, FormaFicha formaFicha = FormaFicha.Sombrero)
     {
         if (string.IsNullOrWhiteSpace(nombre))
         {
@@ -40,6 +41,7 @@ public class Jugador
         Id = id;
         Nombre = nombre.Trim();
         ColorFicha = colorFicha;
+        FormaFicha = formaFicha;
         Saldo = saldoInicial;
         Activo = true;
     }
@@ -89,6 +91,11 @@ public class Jugador
     /// Color de la ficha.
     /// </summary>
     public ColorFicha ColorFicha { get; }
+
+    /// <summary>
+    /// Forma de la ficha.
+    /// </summary>
+    public FormaFicha FormaFicha { get; }
 
     /// <summary>
     /// Cantidad de propiedades del jugador.

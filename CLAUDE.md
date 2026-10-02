@@ -81,7 +81,7 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
 - Protocolo de texto: una línea UTF-8 por mensaje, `COMANDO|campo|...`, con escapes `\\`, `\|`, `\n`, `\r` (`Protocolo.Codificar/Decodificar`, `Mensaje`). **Todo cambio al protocolo se refleja en `docs/protocolo.md`.**
 - `Servidor`: `TcpListener` (puerto 5000 por defecto, `IPAddress.Any`; las pruebas usan puerto 0 y loopback), un hilo por cliente, conexiones en `ListaSimple<ConexionCliente>` con `lock`. El jugador se identifica por la conexión. Las solicitudes se procesan de a una (`_candadoProcesamiento`) y tras cada acción aceptada se difunden `EVENTO`s nuevos + `ESTADO` (+ `FIN` una vez). Los rechazos van solo al solicitante como `ERROR`.
 - Desconexión: el jugador sigue en la partida (no se elimina ni se salta su turno); `CONECTAR` con el mismo nombre lo reconecta con su id.
-- `ESTADO` se serializa con `SerializadorEstado` (18 campos fijos + 10 por jugador) sobre `EstadoRed` (instantánea + dueños + casillas recorridas). `TRANSACCIONES` con `SerializadorTransacciones` (8 campos por transacción).
+- `ESTADO` se serializa con `SerializadorEstado` (21 campos fijos + 11 por jugador; el último es la forma de la ficha) sobre `EstadoRed` (instantánea + dueños + casillas recorridas). `TRANSACCIONES` con `SerializadorTransacciones` (8 campos por transacción).
 - `Cliente`: `TcpClient` + hilo lector; notifica con eventos C# (`BienvenidaRecibida`, `ErrorRecibido`, `EstadoActualizado`, `DadosRecibidos`, `EventoRecibido`, `TransaccionesRecibidas`, `FinRecibido`, `Desconectado`, `MensajeRecibido`). **Se disparan en el hilo lector**: la interfaz debe usar `BeginInvoke`.
 - `TIRAR_DADOS` y `PAGAR_CON_TARJETA` solo se aceptan en **modo sin hardware (pruebas)**; en modo hardware los dados salen del botón físico y compras/pagos de la tarjeta RFID. `ESTADO` tiene 21 campos fijos (19 = cajero conectado, 20 = modo sin hardware).
 - `src/Monopoly.ClienteConsola` es una herramienta **temporal** de depuración (`servidor [puerto]` / `cliente [host] [puerto] [nombre]`).
@@ -134,7 +134,17 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
 - Argumentos de prueba: `--crear Nombre [puerto] [maxTurnos]` y `--unirse Nombre [ip] [puerto]`.
 - Errores al conectar: se muestran en la etiqueta y en un diálogo (`FormularioInicio.MostrarError`); se valida la IP antes de conectar y se espera la BIENVENIDA como máximo 8 s.
 - Desconexiones: las tarjetas muestran "DESCONECTADO"; el organizador ve el botón "Retirar jugadores desconectados..."; un jugador que pierde la conexión puede volver al inicio ya relleno (`VolverParaReconectar` + `ArgumentosInicio.ParaReconectar`), salvo que el servidor haya cerrado.
-- `Paleta`: verde del tablero, colores de grupo y de ficha. `Casilla.Detalle` (virtual) da el texto secundario de cada casilla.
+- `Paleta`: datos del tablero (colores de grupo y de ficha delegan en `Tema`). `Casilla.Detalle` (virtual) da el texto secundario de cada casilla.
+
+## Rediseño de la interfaz (en curso: paso 1 de 3 hecho)
+
+- Nombre visible del juego: **MONOPOLY TEC** (`Tema.NombreJuego`), con logotipo propio (marquesina roja con luces, `Estilo/Logotipo.cs`). Nada del logotipo, la mascota ni las ilustraciones oficiales.
+- **Sistema de estilo** en `src/Monopoly.App/Estilo` (namespace `Monopoly.App.Estilo`): `Tema` (paleta: verde menta, rojo clásico, crema/marfil, colores de grupo menos saturados, éxito/error/información/advertencia; fuentes `Titulo(pt)` y `Texto(pt, estilo)`), `Fuentes` (Abril Fatface para títulos y Lato normal/negrita para texto, SIL OFL 1.1, incrustadas como recursos y cargadas con `PrivateFontCollection` + `AddFontMemResourceEx`; licencias en `Estilo/Fuentes/OFL-*.txt`, copiadas a `Licencias/` en la salida; si fallan, Georgia y Segoe UI), `Dibujo` (antialiasing, redondeados, sombras, fondo con patrón de tablero, indicador, ✓ dibujada), `BotonRedondeado` (hereda de `Button` para conservar teclado/accesibilidad; estilos Principal/Secundario/Exito), `TarjetaPanel`, `CampoTexto` (etiqueta + caja + error en rojo), `Etiqueta` (dibujada con GDI+), `Notificaciones`/`AvisoNotificacion` (toasts), `SelectorFicha`, `DibujoFicha` (6 fichas: sombrero, carro, barco, perro, dedal, bota), `DibujoDado`, `Iconos`.
+- Lato no trae cursiva: no usar `FontStyle.Italic` con `Tema.Texto`. Todo control dibujado usa `OptimizedDoubleBuffer` y `Dibujo.Calidad`.
+- **Ficha elegida**: `FormaFicha` (Modelo) + `ColorFicha` (6 colores). `CONECTAR|nombre|forma|color` (opcionales); `Juego.UnirJugador(nombre, forma?, color?)` rechaza forma o color repetidos y, si no se indican, asigna la primera libre (así lo hacen los argumentos de prueba `--crear/--unirse`). La forma viaja en `EstadoJugador.FormaFicha` y se dibuja en el tablero y en los paneles.
+- Ventana de inicio: fondo de tablero, logotipo y dados animados, tarjeta "Su jugador" (nombre + `SelectorFicha`), tarjetas "Crear partida" y "Unirse a partida" con validación visual; errores como notificaciones.
+- Sala de espera: `TarjetaJugadorSala` (ficha, color, insignias, estado RFID; aparece animada), dirección del banco con "Copiar", estado de la Pico W, vinculación de tarjetas (clic en el jugador) y "Iniciar partida" con la explicación de lo que falta.
+- Pendiente (pasos 2 y 3): ventana de juego, tablero, historial y fin con el nuevo estilo.
 
 ## Resumen de requisitos del enunciado
 

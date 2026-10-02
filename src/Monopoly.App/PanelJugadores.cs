@@ -66,9 +66,7 @@ internal sealed class PanelJugadores : Control
 
         using Font negrita = new Font(Paleta.Fuente, 11f, FontStyle.Bold);
         using Font normal = new Font(Paleta.Fuente, 8.5f);
-        using Font inicial = new Font(Paleta.Fuente, 11f, FontStyle.Bold);
         using StringFormat derecha = new StringFormat { Alignment = StringAlignment.Far };
-        using StringFormat centrado = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
 
         EstadoJugador[] jugadores = _estado.Instantanea.Jugadores;
         for (int k = 0; k < jugadores.Length; k++)
@@ -86,14 +84,8 @@ internal sealed class PanelJugadores : Control
                 g.DrawPath(borde, forma);
             }
 
-            Rectangle ficha = new Rectangle(tarjeta.X + 10, tarjeta.Y + 10, 28, 28);
-            using (SolidBrush color = new SolidBrush(j.Activo ? Paleta.ColorFicha(j.ColorFicha) : Color.Gray))
-            {
-                g.FillEllipse(color, ficha);
-            }
-
-            g.DrawEllipse(Pens.Black, ficha);
-            g.DrawString(j.Nombre.Substring(0, 1).ToUpperInvariant(), inicial, Brushes.White, ficha, centrado);
+            Rectangle ficha = new Rectangle(tarjeta.X + 8, tarjeta.Y + 8, 32, 32);
+            Estilo.DibujoFicha.DibujarEnDisco(g, j.FormaFicha, ficha, j.Activo ? Paleta.ColorFicha(j.ColorFicha) : Color.Gray, false);
 
             string nombre = j.Nombre + (j.Id == _miId ? " (usted)" : string.Empty) + (enTurno ? "  ◄ turno" : string.Empty);
             g.DrawString(nombre, negrita, Brushes.Black, tarjeta.X + 44, tarjeta.Y + 6);

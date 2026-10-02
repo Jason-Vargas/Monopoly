@@ -67,7 +67,7 @@ public class PruebasProtocolo
     [Fact]
     public void Estado_IdaYVuelta()
     {
-        EstadoJugador ana = new EstadoJugador(1, "Ana | la del sombrero", ColorFicha.Rojo, 1440, 3, true, 0, 1500, new[] { 3, 5 }, true);
+        EstadoJugador ana = new EstadoJugador(1, "Ana | la del sombrero", ColorFicha.Rojo, 1440, 3, true, 0, 1500, new[] { 3, 5 }, true, FormaFicha.Bota);
         EstadoJugador beto = new EstadoJugador(2, "Beto", ColorFicha.Azul, 0, 10, false, 1, 0, new int[0], false);
         InstantaneaJuego instantanea = new InstantaneaJuego(EstadoPartida.EnCurso, FaseTurno.EsperandoPago, 7, 100, 1, null, null, 1,
             "Ana debe pagar ₡200 al banco", 200, new TiradaDados(1, 2), new[] { ana, beto }, 42, 5);
@@ -97,6 +97,7 @@ public class PruebasProtocolo
         Assert.Equal(("Ana | la del sombrero", ColorFicha.Rojo, 1440, 3, true, 0, 1500, true),
             (a.Nombre, a.ColorFicha, a.Saldo, a.Posicion, a.Activo, a.TurnosPorPerder, a.Patrimonio, a.TieneTarjetaFisica));
         Assert.Equal(new[] { 3, 5 }, a.IdsPropiedades);
+        Assert.Equal(FormaFicha.Bota, a.FormaFicha);
         EstadoJugador b = copia.BuscarJugador(2)!;
         Assert.Equal((false, 1, 10), (b.Activo, b.TurnosPorPerder, b.Posicion));
         Assert.Empty(b.IdsPropiedades);

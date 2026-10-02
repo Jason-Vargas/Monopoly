@@ -40,8 +40,8 @@ Genera `publicar\win-x64\Monopoly.App.exe`, un único archivo que incluye .NET (
 
 ## Jugar con la interfaz gráfica
 
-1. El organizador abre la aplicación, escribe su nombre y pulsa **Crear partida**: su equipo aloja al banco y la sala de espera muestra la IP y el puerto que debe compartir.
-2. Los demás abren la aplicación, escriben su nombre, la IP y el puerto, y pulsan **Unirse a partida**.
+1. El organizador abre la aplicación, escribe su nombre, elige su ficha y su color, y pulsa **Crear partida**: su equipo aloja al banco y la sala de espera muestra la dirección (IP y puerto) que debe compartir, con un botón para copiarla.
+2. Los demás abren la aplicación, escriben su nombre, eligen ficha y color, escriben la IP y el puerto, y pulsan **Unirse a partida**. Dos jugadores no pueden tener la misma ficha ni el mismo color.
 3. Con 2 a 4 jugadores, el organizador pulsa **Iniciar partida**.
 
 Para probar con 4 ventanas en una sola computadora (compilar primero):
@@ -54,6 +54,10 @@ Start-Process $exe "--unirse Beto 127.0.0.1 5000"
 Start-Process $exe "--unirse Carla 127.0.0.1 5000"
 Start-Process $exe "--unirse Dani 127.0.0.1 5000"
 ```
+
+Con estos argumentos de prueba el servidor asigna a cada ventana la primera ficha libre.
+
+Tipografías: [Abril Fatface](https://fonts.google.com/specimen/Abril+Fatface) y [Lato](https://fonts.google.com/specimen/Lato), con licencia SIL Open Font License 1.1 (ver `src/Monopoly.App/Estilo/Fuentes/OFL-*.txt`). El logotipo "MONOPOLY TEC" y las fichas son diseño propio.
 
 ## Probar una partida por consola
 

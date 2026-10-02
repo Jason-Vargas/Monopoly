@@ -16,6 +16,7 @@ namespace Monopoly.Core.Logica;
 /// <param name="Patrimonio">Saldo más el precio de sus propiedades.</param>
 /// <param name="IdsPropiedades">Posiciones de sus propiedades, en orden de adquisición.</param>
 /// <param name="TieneTarjetaFisica"><c>true</c> si vinculó una tarjeta RFID real.</param>
+/// <param name="FormaFicha">Forma de la ficha.</param>
 public sealed record EstadoJugador(
     int Id,
     string Nombre,
@@ -26,4 +27,5 @@ public sealed record EstadoJugador(
     int TurnosPorPerder,
     int Patrimonio,
     int[] IdsPropiedades,
-    bool TieneTarjetaFisica);
+    bool TieneTarjetaFisica,
+    FormaFicha FormaFicha = FormaFicha.Sombrero);

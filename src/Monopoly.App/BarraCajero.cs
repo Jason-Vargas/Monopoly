@@ -3,6 +3,7 @@ using System.Drawing;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Monopoly.App.Estilo;
 using Monopoly.Core.Hardware;
 
 namespace Monopoly.App;
@@ -21,7 +22,7 @@ internal sealed class BarraCajero : ToolStrip
     private readonly ToolStripButton _btnConectar = new ToolStripButton("Conectar");
     private readonly ToolStripButton _btnDetectar = new ToolStripButton("Detectar") { ToolTipText = "Probar cada puerto con PING/PONG" };
     private readonly ToolStripLabel _lblEstado = new ToolStripLabel();
-    private readonly CheckBox _chkSinHardware = new CheckBox { Text = "Modo sin hardware (pruebas)", AutoSize = true, BackColor = Color.Transparent };
+    private readonly CheckBox _chkSinHardware = new CheckBox { Text = "Modo sin hardware (pruebas)", AutoSize = true, BackColor = Color.Transparent, Font = Tema.Texto(9f) };
     private readonly ToolStripButton _btnSimularBoton = new ToolStripButton("Simular botón") { Visible = false };
     private readonly ToolStripButton _btnSimularTarjeta = new ToolStripButton("Simular tarjeta del jugador en turno") { Visible = false };
     private bool _ocupado;
@@ -36,10 +37,12 @@ internal sealed class BarraCajero : ToolStrip
         _sesion = sesion;
         GripStyle = ToolStripGripStyle.Hidden;
         Padding = new Padding(6, 2, 6, 2);
-        Font = new Font(Paleta.Fuente, 9.5f);
-        BackColor = Color.FromArgb(232, 240, 232);
+        Font = Tema.Texto(9f);
+        BackColor = Tema.Crema;
+        ForeColor = Tema.Tinta;
+        RenderMode = ToolStripRenderMode.System;
 
-        Items.Add(new ToolStripLabel("Cajero (Pico W):") { Font = new Font(Paleta.Fuente, 9.5f, FontStyle.Bold) });
+        Items.Add(new ToolStripLabel("Cajero:") { Font = Tema.Texto(9.5f, FontStyle.Bold), ForeColor = Tema.Rojo });
         Items.Add(_cmbPuertos);
         Items.Add(_btnActualizar);
         Items.Add(_btnConectar);
@@ -203,6 +206,11 @@ internal sealed class BarraCajero : ToolStrip
         _cmbPuertos.Enabled = !_ocupado && !sinHardware && !conectada;
         _btnActualizar.Enabled = !_ocupado && !sinHardware && !conectada;
         _chkSinHardware.Enabled = !_ocupado;
+        // En modo sin hardware los controles del puerto no se usan: se ocultan para dejar sitio a la simulación.
+        _cmbPuertos.Visible = !sinHardware;
+        _btnActualizar.Visible = !sinHardware;
+        _btnConectar.Visible = !sinHardware;
+        _btnDetectar.Visible = !sinHardware;
         _btnSimularBoton.Visible = sinHardware;
         _btnSimularTarjeta.Visible = sinHardware;
 
@@ -225,7 +233,7 @@ internal sealed class BarraCajero : ToolStrip
         if (sinHardware)
         {
             _lblEstado.ForeColor = Color.FromArgb(120, 60, 160);
-            _lblEstado.Text = "◆ Modo sin hardware (pruebas): use los botones de simulación";
+            _lblEstado.Text = "◆ Simulación";
         }
         else if (conectada)
         {
@@ -235,7 +243,7 @@ internal sealed class BarraCajero : ToolStrip
         else
         {
             _lblEstado.ForeColor = Color.FromArgb(200, 100, 0);
-            _lblEstado.Text = "● Pico W desconectada: partida en pausa hasta conectarla";
+            _lblEstado.Text = "● Desconectada (pausa)";
         }
     }
 }
