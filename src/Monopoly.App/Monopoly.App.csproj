@@ -17,6 +17,12 @@
     <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
   </PropertyGroup>
 
+  <!-- Fuentes de licencia libre (SIL OFL 1.1) incrustadas y cargadas con PrivateFontCollection (ver Estilo/Fuentes.cs). -->
+  <ItemGroup>
+    <EmbeddedResource Include="Estilo\Fuentes\*.ttf" LogicalName="Monopoly.App.Fuentes.%(Filename)%(Extension)" />
+    <None Include="Estilo\Fuentes\OFL-*.txt" CopyToOutputDirectory="PreserveNewest" Link="Licencias\%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Monopoly.Core\Monopoly.Core.csproj" />
   </ItemGroup>

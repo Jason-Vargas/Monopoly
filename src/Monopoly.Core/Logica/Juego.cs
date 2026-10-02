@@ -39,7 +39,11 @@ public class Juego
     /// </summary>
     private const int ProfundidadMaximaEfectos = 10;
 
-    private static readonly ColorFicha[] ColoresFicha = { ColorFicha.Rojo, ColorFicha.Azul, ColorFicha.Verde, ColorFicha.Amarillo };
+    private static readonly ColorFicha[] ColoresFicha =
+        { ColorFicha.Rojo, ColorFicha.Azul, ColorFicha.Verde, ColorFicha.Amarillo, ColorFicha.Morado, ColorFicha.Naranja };
+
+    private static readonly FormaFicha[] FormasFicha =
+        { FormaFicha.Sombrero, FormaFicha.Carro, FormaFicha.Barco, FormaFicha.Perro, FormaFicha.Dedal, FormaFicha.Bota };
 
     private readonly object _candado = new object();
     private readonly ColaCircular<Jugador> _turnos = new ColaCircular<Jugador>(MaximoJugadores);
@@ -219,11 +223,14 @@ public class Juego
 
     /// <summary>
     /// Registra un jugador nuevo mientras la partida espera jugadores. Se le asigna un id,
-    /// un color de ficha y un UID de tarjeta virtual (reemplazable con <see cref="VincularTarjeta"/>).
+    /// una ficha (forma y color) y un UID de tarjeta virtual (reemplazable con <see cref="VincularTarjeta"/>).
     /// </summary>
     /// <param name="nombre">Nombre del jugador (único, sin distinguir mayúsculas).</param>
-    /// <returns>El resultado con <see cref="ResultadoAccion.IdJugador"/> y <see cref="ResultadoAccion.UidTarjeta"/>.</returns>
-    public ResultadoAccion UnirJugador(string nombre)
+    /// <param name="forma">Forma de ficha elegida, o <c>null</c> para recibir la primera libre.</param>
+    /// <param name="color">Color de ficha elegido, o <c>null</c> para recibir el primero libre.</param>
+    /// <returns>El resultado con <see cref="ResultadoAccion.IdJugador"/> y <see cref="ResultadoAccion.UidTarjeta"/>;
+    /// falla si la forma o el color ya los eligió otro jugador.</returns>
+    public ResultadoAccion UnirJugador(string nombre, FormaFicha? forma = null, ColorFicha? color = null)
     {
         lock (_candado)
         {
@@ -254,13 +261,27 @@ public class Juego
                 return ResultadoAccion.Fallido($"Ya existe un jugador llamado {nombreLimpio}; elija otro nombre.");
             }
 
+            Jugador? conForma = forma.HasValue ? _jugadores.Buscar(j => j.FormaFicha == forma.Value) : null;
+            if (conForma != null)
+            {
+                return ResultadoAccion.Fallido($"La ficha {forma} ya la eligió {conForma.Nombre}; elija otra.");
+            }
+
+            Jugador? conColor = color.HasValue ? _jugadores.Buscar(j => j.ColorFicha == color.Value) : null;
+            if (conColor != null)
+            {
+                return ResultadoAccion.Fallido($"El color {color} ya lo eligió {conColor.Nombre}; elija otro.");
+            }
+
+            FormaFicha formaFinal = forma ?? PrimeraLibre(FormasFicha, f => _jugadores.Buscar(j => j.FormaFicha == f) == null);
+            ColorFicha colorFinal = color ?? PrimeraLibre(ColoresFicha, c => _jugadores.Buscar(j => j.ColorFicha == c) == null);
             int id = _siguienteId++;
-            Jugador jugador = new Jugador(id, nombreLimpio, ColoresFicha[_jugadores.Cantidad], _saldoInicial)
+            Jugador jugador = new Jugador(id, nombreLimpio, colorFinal, _saldoInicial, formaFinal)
             {
                 UidTarjeta = PrefijoTarjetaVirtual + id,
             };
             _jugadores.AgregarAlFinal(jugador);
-            RegistrarEvento($"{jugador.Nombre} se unió a la partida con la ficha {jugador.ColorFicha}.");
+            RegistrarEvento($"{jugador.Nombre} se unió a la partida con la ficha {jugador.FormaFicha} ({jugador.ColorFicha}).");
 
             return ResultadoAccion.Correcto($"{jugador.Nombre} se unió a la partida.") with
             {
@@ -268,6 +289,22 @@ public class Juego
                 UidTarjeta = jugador.UidTarjeta,
             };
         }
+    }
+
+    /// <summary>
+    /// Primer valor del arreglo que cumple la condición (hay más opciones que jugadores, así que siempre existe).
+    /// </summary>
+    private static T PrimeraLibre<T>(T[] opciones, Predicate<T> libre)
+    {
+        foreach (T opcion in opciones)
+        {
+            if (libre(opcion))
+            {
+                return opcion;
+            }
+        }
+
+        return opciones[0];
     }
 
     /// <summary>
@@ -1217,7 +1254,7 @@ public class Juego
             bool fisica = jugador.UidTarjeta != null && !jugador.UidTarjeta.StartsWith(PrefijoTarjetaVirtual, StringComparison.Ordinal);
             jugadores[i++] = new EstadoJugador(jugador.Id, jugador.Nombre, jugador.ColorFicha, jugador.Saldo,
                 jugador.CasillaActual?.Id ?? Tablero.IndiceSalida, jugador.Activo, jugador.TurnosPorPerder,
-                jugador.CalcularPatrimonio(), propiedades, fisica);
+                jugador.CalcularPatrimonio(), propiedades, fisica, jugador.FormaFicha);
         });
 
         bool enCurso = _estado == EstadoPartida.EnCurso;

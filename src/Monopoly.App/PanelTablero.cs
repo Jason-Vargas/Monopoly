@@ -490,10 +490,8 @@ internal sealed class PanelTablero : Control
         }
 
         EstadoJugador[] jugadores = _estado.Instantanea.Jugadores;
-        float radio = u * 0.2f;
-        float desplazamiento = u * 0.24f;
-        using Font inicial = new Font(Paleta.Fuente, Math.Max(radio * 1.1f, 6f), FontStyle.Bold, GraphicsUnit.Pixel);
-        using StringFormat centrado = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+        float radio = u * 0.23f;
+        float desplazamiento = u * 0.25f;
 
         for (int k = 0; k < jugadores.Length; k++)
         {
@@ -516,23 +514,8 @@ internal sealed class PanelTablero : Control
                 g.FillEllipse(brillo, RectangleF.Inflate(ficha, radio * 0.45f, radio * 0.45f));
             }
 
-            using (SolidBrush sombra = new SolidBrush(Color.FromArgb(90, 0, 0, 0)))
-            {
-                g.FillEllipse(sombra, ficha.X + (radio * 0.15f), ficha.Y + (radio * 0.2f), ficha.Width, ficha.Height);
-            }
-
-            using (SolidBrush color = new SolidBrush(Paleta.ColorFicha(jugador.ColorFicha)))
-            {
-                g.FillEllipse(color, ficha);
-            }
-
-            using (Pen blanco = new Pen(Color.White, Math.Max(radio * 0.18f, 1f)))
-            {
-                g.DrawEllipse(blanco, RectangleF.Inflate(ficha, -radio * 0.12f, -radio * 0.12f));
-            }
-
-            g.DrawEllipse(Pens.Black, ficha);
-            g.DrawString(jugador.Nombre.Substring(0, 1).ToUpperInvariant(), inicial, Brushes.White, ficha, centrado);
+            // Ficha elegida por el jugador (forma y color), sobre un disco.
+            Estilo.DibujoFicha.DibujarEnDisco(g, jugador.FormaFicha, ficha, Paleta.ColorFicha(jugador.ColorFicha));
         }
     }
 

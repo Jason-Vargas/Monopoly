@@ -31,7 +31,7 @@ Comunicación por **sockets TCP** entre los clientes (jugadores) y el servidor (
 
 | Mensaje | Campos | Si se acepta | Errores posibles |
 |---|---|---|---|
-| `CONECTAR\|nombre` | nombre del jugador | `BIENVENIDA` al solicitante; `EVENTO` + `ESTADO` a todos | partida ya iniciada, máximo 4 jugadores, nombre vacío/repetido/reservado (`BANCO`), jugador ya conectado, conexión ya asociada |
+| `CONECTAR\|nombre[\|forma\|color]` | nombre del jugador y, opcionalmente, la ficha elegida: forma (`Sombrero`, `Carro`, `Barco`, `Perro`, `Dedal`, `Bota`) y color (`Rojo`, `Azul`, `Verde`, `Amarillo`, `Morado`, `Naranja`); si se omiten, el servidor asigna la primera libre | `BIENVENIDA` al solicitante; `EVENTO` + `ESTADO` a todos | partida ya iniciada, máximo 4 jugadores, nombre vacío/repetido/reservado (`BANCO`), forma o color ya elegidos por otro (`La ficha Perro ya la eligió Ana; elija otra.`), valor de ficha desconocido (`Ficha no válida: ...`), jugador ya conectado, conexión ya asociada. Al reconectarse, la ficha enviada se ignora |
 | `INICIAR_PARTIDA` | — | `EVENTO` + `ESTADO` a todos | no es el organizador (primer jugador), menos de 2 jugadores, ya iniciada; en **modo hardware**, algún jugador sin tarjeta vinculada (`Todos los jugadores deben tener una tarjeta vinculada antes de iniciar. Faltan: X, Y.`) |
 | `TIRAR_DADOS` | — | **solo en modo sin hardware**: `DADOS` + `EVENTO` + `ESTADO` a todos | en modo hardware siempre `ERROR\|Los dados se lanzan con el botón físico del cajero.`; fuera de turno, ya lanzó en este turno, eliminado, partida no en curso |
 | `COMPRAR_PROPIEDAD` | — | **no cobra**: la fase pasa a `EsperandoTarjetaCompra`; `EVENTO\|X quiere comprar P por ₡N: acerque su tarjeta al lector.` + `ESTADO` a todos. La compra se ejecuta al leer la tarjeta del comprador (sección 9) | fuera de turno, no lanzó, no es propiedad, ya tiene dueño, sin compra pendiente, ya se está esperando la tarjeta |
@@ -92,12 +92,12 @@ Después de `ESTADO` vienen 21 campos fijos:
 | 19 | **cajero físico conectado** (Pico W en el organizador): `1`/`0` | `1` |
 | 20 | **modo sin hardware (pruebas)** activo: `1`/`0`. Si vale `0` y el campo 19 también, la partida está **en pausa** esperando el cajero | `0` |
 
-Luego **N bloques de 10 campos**, uno por jugador en orden de ingreso: `id`, `nombre`, `color` (`Rojo`, `Azul`, `Verde`, `Amarillo`), `saldo`, `posición` (0 a 39), `activo` (1/0), `turnos por perder`, `patrimonio`, `propiedades` (casillas separadas por coma), `tarjeta física` (1/0).
+Luego **N bloques de 11 campos**, uno por jugador en orden de ingreso: `id`, `nombre`, `color` (`Rojo`, `Azul`, `Verde`, `Amarillo`, `Morado`, `Naranja`), `saldo`, `posición` (0 a 39), `activo` (1/0), `turnos por perder`, `patrimonio`, `propiedades` (casillas separadas por coma), `tarjeta física` (1/0), `forma de la ficha` (`Sombrero`, `Carro`, `Barco`, `Perro`, `Dedal`, `Bota`).
 
 Ejemplo (2 jugadores; Beto debe alquiler a Ana):
 
 ```
-ESTADO|EnCurso|EsperandoPago|2|100|2|||2|4|Beto debe pagar ₡4 a Ana|1|2|2|1,2,3|3:1|14|1|2||1|0|1|Ana|Rojo|1440|3|1|0|1500|3|1|2|Beto|Azul|1500|3|1|0|1500||1
+ESTADO|EnCurso|EsperandoPago|2|100|2|||2|4|Beto debe pagar ₡4 a Ana|1|2|2|1,2,3|3:1|14|1|2||1|0|1|Ana|Rojo|1440|3|1|0|1500|3|1|Perro|2|Beto|Azul|1500|3|1|0|1500||1|Barco
 ```
 
 ### 4.2 Campos de `TRANSACCIONES`
@@ -125,10 +125,12 @@ TRANSACCIONES|JUGADOR Ana|2|1|2026-09-29T15:30:00|1|CompraPropiedad|Ana|BANCO|60
 ## 6. Ejemplo de sesión
 
 ```
-→ CONECTAR|Ana
+→ CONECTAR|Ana|Perro|Rojo
 ← BIENVENIDA|1|Ana
-← EVENTO|Ana se unió a la partida con la ficha Rojo.
-← ESTADO|EsperandoJugadores|EsperandoDados|0|100|...|1|1|Ana|Rojo|1500|0|1|0|1500||0
+← EVENTO|Ana se unió a la partida con la ficha Perro (Rojo).
+← ESTADO|EsperandoJugadores|EsperandoDados|0|100|...|1|1|Ana|Rojo|1500|0|1|0|1500||0|Perro
+→ CONECTAR|Beto|Perro|Azul      (desde otra computadora)
+← ERROR|La ficha Perro ya la eligió Ana; elija otra.
    (Beto, Carla y Dani se conectan igual)
 → INICIAR_PARTIDA
 ← EVENTO|La partida comenzó con 4 jugadores (máximo 100 turnos).

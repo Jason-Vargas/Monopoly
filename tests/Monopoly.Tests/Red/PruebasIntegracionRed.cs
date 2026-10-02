@@ -178,6 +178,29 @@ public class PruebasIntegracionRed : IDisposable
     }
 
     [Fact]
+    public void Conectar_ConFichaElegida_SeVeEnElEstadoYNoSeRepite()
+    {
+        ClientePrueba ana = Nuevo("Ana");
+        ana.Cliente.Unirse("Ana", FormaFicha.Perro, ColorFicha.Morado);
+        ana.Esperar(Protocolo.Bienvenida);
+        EstadoJugador a = ana.EsperarEstado(e => e.Instantanea.Jugadores.Length == 1).BuscarJugador(1)!;
+        Assert.Equal((FormaFicha.Perro, ColorFicha.Morado), (a.FormaFicha, a.ColorFicha));
+
+        ClientePrueba beto = Nuevo("Beto");
+        beto.Cliente.Unirse("Beto", FormaFicha.Perro, ColorFicha.Azul);
+        beto.EsperarError("La ficha Perro ya la eligió Ana; elija otra.");
+        beto.Cliente.Unirse("Beto", FormaFicha.Barco, ColorFicha.Morado);
+        beto.EsperarError("El color Morado ya lo eligió Ana; elija otro.");
+        beto.Cliente.EnviarLinea("CONECTAR|Beto|Avion|Azul");
+        beto.EsperarError("Ficha no válida");
+
+        // Sin ficha elegida, recibe la primera libre (como los clientes anteriores).
+        beto.Cliente.Unirse("Beto");
+        EstadoJugador b = beto.EsperarEstado(e => e.Instantanea.Jugadores.Length == 2).BuscarJugador(2)!;
+        Assert.Equal((FormaFicha.Sombrero, ColorFicha.Rojo), (b.FormaFicha, b.ColorFicha));
+    }
+
+    [Fact]
     public void IniciarPartida_SoloElOrganizador()
     {
         ClientePrueba[] c = ConectarCuatro();

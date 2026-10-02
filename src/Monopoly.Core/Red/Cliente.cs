@@ -100,7 +100,7 @@ public sealed class Cliente : IDisposable
     public const int TiempoEsperaConexionMs = 5000;
 
     /// <summary>
-    /// Abre la conexión TCP y arranca el hilo lector. Después hay que enviar <see cref="Unirse"/>.
+    /// Abre la conexión TCP y arranca el hilo lector. Después hay que enviar <see cref="Unirse(string)"/>.
     /// </summary>
     /// <param name="host">IP o nombre del servidor.</param>
     /// <param name="puerto">Puerto del servidor.</param>
@@ -205,6 +205,13 @@ public sealed class Cliente : IDisposable
     /// <summary>Envía <c>CONECTAR|nombre</c>.</summary>
     /// <param name="nombre">Nombre del jugador.</param>
     public void Unirse(string nombre) => Enviar(Protocolo.Conectar, nombre);
+
+    /// <summary>Envía <c>CONECTAR|nombre|forma|color</c> con la ficha elegida.</summary>
+    /// <param name="nombre">Nombre del jugador.</param>
+    /// <param name="forma">Forma de ficha preferida.</param>
+    /// <param name="color">Color de ficha preferido.</param>
+    public void Unirse(string nombre, FormaFicha forma, ColorFicha color) =>
+        Enviar(Protocolo.Conectar, nombre, forma.ToString(), color.ToString());
 
     /// <summary>Envía <c>INICIAR_PARTIDA</c>.</summary>
     public void IniciarPartida() => Enviar(Protocolo.IniciarPartida);

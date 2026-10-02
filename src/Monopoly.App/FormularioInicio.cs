@@ -3,14 +3,17 @@ using System.Drawing;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Monopoly.App.Estilo;
 using Monopoly.Core.Logica;
 using Monopoly.Core.Red;
 
 namespace Monopoly.App;
 
 /// <summary>
-/// Ventana de inicio: nombre del jugador y dos opciones, crear la partida (el organizador aloja al
-/// servidor en esta misma aplicación) o unirse a una existente por IP y puerto.
+/// Ventana de inicio: logotipo animado sobre un fondo de tablero, el jugador (nombre, ficha y color) y dos
+/// tarjetas: crear la partida (el organizador aloja al servidor en esta misma aplicación) o unirse a una
+/// existente por IP y puerto. Los campos se validan visualmente y los errores se muestran como
+/// notificaciones.
 /// </summary>
 internal sealed class FormularioInicio : Form
 {
@@ -19,15 +22,26 @@ internal sealed class FormularioInicio : Form
     /// </summary>
     private const int TiempoEsperaBienvenidaMs = 8000;
 
+    private const int DuracionEntradaMs = 1300;
+    private const int AltoCabecera = 176;
+
     private readonly ArgumentosInicio _argumentos;
-    private readonly TextBox _txtNombre = new TextBox();
-    private readonly NumericUpDown _nudPuertoCrear = CrearNumero(1024, 65535, Servidor.PuertoPredeterminado);
-    private readonly NumericUpDown _nudMaximoTurnos = CrearNumero(1, 2000, OpcionesJuego.MaximoTurnosPredeterminado);
-    private readonly TextBox _txtIp = new TextBox { Text = "127.0.0.1" };
-    private readonly NumericUpDown _nudPuertoUnirse = CrearNumero(1, 65535, Servidor.PuertoPredeterminado);
-    private readonly Button _btnCrear = new Button { Text = "Crear partida" };
-    private readonly Button _btnUnirse = new Button { Text = "Unirse a partida" };
-    private readonly Label _lblEstado = new Label { AutoSize = false };
+    private readonly CampoTexto _txtNombre = new CampoTexto { Etiqueta = "Su nombre", Marcador = "Por ejemplo, Ana", LongitudMaxima = 20 };
+    private readonly SelectorFicha _selectorFicha = new SelectorFicha();
+    private readonly CampoTexto _txtMaximoTurnos = new CampoTexto { Etiqueta = "Máximo de turnos", SoloNumeros = true, LongitudMaxima = 4 };
+    private readonly CampoTexto _txtPuertoCrear = new CampoTexto { Etiqueta = "Puerto", SoloNumeros = true, LongitudMaxima = 5 };
+    private readonly CampoTexto _txtIp = new CampoTexto { Etiqueta = "IP del organizador", Marcador = "192.168.1.20", LongitudMaxima = 64 };
+    private readonly CampoTexto _txtPuertoUnirse = new CampoTexto { Etiqueta = "Puerto", SoloNumeros = true, LongitudMaxima = 5 };
+    private readonly BotonRedondeado _btnCrear = new BotonRedondeado { Text = "Crear partida", Estilo = EstiloBoton.Principal };
+    private readonly BotonRedondeado _btnUnirse = new BotonRedondeado { Text = "Unirse a partida", Estilo = EstiloBoton.Principal };
+    private readonly TarjetaPanel _tarjetaJugador = new TarjetaPanel { Titulo = "Su jugador" };
+    private readonly Notificaciones _notificaciones;
+    private readonly Timer _animacion = new Timer { Interval = 16 };
+    private readonly Random _azar = new Random();
+    private long _inicioAnimacion;
+    private int _dado1 = 1;
+    private int _dado2 = 6;
+    private int _faseLuces;
     private SesionJuego? _sesionPendiente;
 
     /// <summary>
@@ -39,61 +53,70 @@ internal sealed class FormularioInicio : Form
         _argumentos = argumentos;
         AutoScaleDimensions = new SizeF(96f, 96f);
         AutoScaleMode = AutoScaleMode.Dpi;
-        Text = "Monopoly Distribuido";
-        FormBorderStyle = FormBorderStyle.FixedDialog;
+        Text = Tema.NombreJuego;
+        FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(520, 520);
-        BackColor = Paleta.FondoPanel;
-        Font = new Font(Paleta.Fuente, 10f);
+        ClientSize = new Size(940, 680);
+        BackColor = Tema.VerdeMenta;
+        Font = Tema.Texto(10f);
+        DoubleBuffered = true;
+        _notificaciones = new Notificaciones(this);
 
-        Panel cabecera = new Panel { Dock = DockStyle.Top, Height = 90, BackColor = Paleta.FondoTablero };
-        cabecera.Paint += (s, e) =>
-        {
-            e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-            using Font titulo = new Font("Georgia", 22f, FontStyle.Bold);
-            using Font subtitulo = new Font(Paleta.Fuente, 10f, FontStyle.Italic);
-            using SolidBrush rojo = new SolidBrush(Paleta.RojoTitulo);
-            e.Graphics.DrawString("MONOPOLY DISTRIBUIDO", titulo, rojo, 20, 14);
-            e.Graphics.DrawString("Estructuras lineales · edición clásica en español", subtitulo, Brushes.DarkGreen, 24, 56);
-            e.Graphics.DrawLine(Pens.Black, 0, cabecera.Height - 1, cabecera.Width, cabecera.Height - 1);
-        };
-        Controls.Add(cabecera);
+        // Tarjeta del jugador: nombre a la izquierda; ficha y color a la derecha.
+        _tarjetaJugador.SetBounds(16, AltoCabecera, 908, 222);
+        _tarjetaJugador.Icono = (g, area) => DibujoFicha.DibujarEnDisco(g, _selectorFicha.Forma, area, Tema.ColorFicha(_selectorFicha.ColorElegido), false);
+        _txtNombre.SetBounds(26, 74, 260, 82);
+        _tarjetaJugador.Controls.Add(_txtNombre);
+        Etiqueta ayudaNombre = new Etiqueta("Así lo verán los demás jugadores;\nsu ficha aparecerá en el tablero.", 9f);
+        ayudaNombre.SetBounds(26, 158, 284, 46);
+        _tarjetaJugador.Controls.Add(ayudaNombre);
+        Etiqueta tituloFicha = new Etiqueta("Elija su ficha", 9.5f, FontStyle.Bold);
+        tituloFicha.SetBounds(316, 12, 200, 26);
+        _tarjetaJugador.Controls.Add(tituloFicha);
+        _selectorFicha.SetBounds(316, 38, 566, 152);
+        _selectorFicha.SeleccionCambiada += () => _tarjetaJugador.Invalidate(new Rectangle(0, 0, 90, 80));
+        _tarjetaJugador.Controls.Add(_selectorFicha);
+        Controls.Add(_tarjetaJugador);
 
-        Controls.Add(new Label { Text = "Su nombre:", Location = new Point(24, 110), AutoSize = true });
-        _txtNombre.SetBounds(130, 106, 360, 26);
-        _txtNombre.MaxLength = 20;
-        Controls.Add(_txtNombre);
-
-        GroupBox grupoCrear = new GroupBox { Text = "Crear partida (organizador)", Location = new Point(24, 148), Size = new Size(466, 140) };
-        grupoCrear.Controls.Add(new Label { Text = "Este equipo alojará al banco (servidor).", Location = new Point(16, 26), AutoSize = true, ForeColor = Color.DimGray });
-        grupoCrear.Controls.Add(new Label { Text = "Puerto:", Location = new Point(16, 60), AutoSize = true });
-        _nudPuertoCrear.SetBounds(90, 56, 90, 26);
-        grupoCrear.Controls.Add(_nudPuertoCrear);
-        grupoCrear.Controls.Add(new Label { Text = "Máximo de turnos:", Location = new Point(200, 60), AutoSize = true });
-        _nudMaximoTurnos.SetBounds(340, 56, 100, 26);
-        grupoCrear.Controls.Add(_nudMaximoTurnos);
-        _btnCrear.SetBounds(16, 94, 424, 34);
+        // Crear partida.
+        TarjetaPanel tarjetaCrear = new TarjetaPanel { Titulo = "Crear partida", Icono = (g, a) => Iconos.Banco(g, a, Tema.Rojo) };
+        tarjetaCrear.SetBounds(16, 408, 450, 260);
+        Etiqueta ayudaCrear = new Etiqueta("Esta computadora será el banco (servidor).", 9f);
+        ayudaCrear.SetBounds(26, 68, 400, 24);
+        tarjetaCrear.Controls.Add(ayudaCrear);
+        _txtMaximoTurnos.SetBounds(26, 96, 190, 82);
+        _txtPuertoCrear.SetBounds(232, 96, 190, 82);
+        _btnCrear.SetBounds(20, 186, 408, 54);
         _btnCrear.Click += async (s, e) => await CrearPartidaAsync();
-        grupoCrear.Controls.Add(_btnCrear);
-        Controls.Add(grupoCrear);
+        tarjetaCrear.Controls.Add(_txtMaximoTurnos);
+        tarjetaCrear.Controls.Add(_txtPuertoCrear);
+        tarjetaCrear.Controls.Add(_btnCrear);
+        Controls.Add(tarjetaCrear);
 
-        GroupBox grupoUnirse = new GroupBox { Text = "Unirse a partida", Location = new Point(24, 300), Size = new Size(466, 110) };
-        grupoUnirse.Controls.Add(new Label { Text = "IP:", Location = new Point(16, 32), AutoSize = true });
-        _txtIp.SetBounds(50, 28, 200, 26);
-        grupoUnirse.Controls.Add(_txtIp);
-        grupoUnirse.Controls.Add(new Label { Text = "Puerto:", Location = new Point(270, 32), AutoSize = true });
-        _nudPuertoUnirse.SetBounds(340, 28, 100, 26);
-        grupoUnirse.Controls.Add(_nudPuertoUnirse);
-        _btnUnirse.SetBounds(16, 64, 424, 34);
+        // Unirse a partida.
+        TarjetaPanel tarjetaUnirse = new TarjetaPanel { Titulo = "Unirse a partida", Icono = (g, a) => Iconos.Red(g, a, Tema.VerdeProfundo) };
+        tarjetaUnirse.SetBounds(474, 408, 450, 260);
+        Etiqueta ayudaUnirse = new Etiqueta("Use la dirección que muestra el organizador.", 9f);
+        ayudaUnirse.SetBounds(26, 68, 400, 24);
+        tarjetaUnirse.Controls.Add(ayudaUnirse);
+        _txtIp.SetBounds(26, 96, 250, 82);
+        _txtPuertoUnirse.SetBounds(292, 96, 130, 82);
+        _btnUnirse.SetBounds(20, 186, 408, 54);
         _btnUnirse.Click += async (s, e) => await UnirseAsync();
-        grupoUnirse.Controls.Add(_btnUnirse);
-        Controls.Add(grupoUnirse);
+        tarjetaUnirse.Controls.Add(_txtIp);
+        tarjetaUnirse.Controls.Add(_txtPuertoUnirse);
+        tarjetaUnirse.Controls.Add(_btnUnirse);
+        Controls.Add(tarjetaUnirse);
 
-        _lblEstado.SetBounds(24, 418, 466, 90);
-        Controls.Add(_lblEstado);
+        _txtMaximoTurnos.Valor = OpcionesJuego.MaximoTurnosPredeterminado.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        _txtPuertoCrear.Valor = Servidor.PuertoPredeterminado.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        _txtPuertoUnirse.Valor = _txtPuertoCrear.Valor;
+        _txtIp.Valor = "127.0.0.1";
+        _txtIp.KeyDown += (s, e) => EnterUne(e);
+        _txtPuertoUnirse.KeyDown += (s, e) => EnterUne(e);
 
-        AcceptButton = _btnUnirse;
+        _animacion.Tick += (s, e) => Animar();
         AplicarArgumentos();
     }
 
@@ -106,6 +129,9 @@ internal sealed class FormularioInicio : Form
     protected override async void OnShown(EventArgs e)
     {
         base.OnShown(e);
+        _inicioAnimacion = Environment.TickCount64;
+        _animacion.Start();
+        _txtNombre.Enfocar();
         if (_argumentos.Modo == ModoInicio.Crear)
         {
             await CrearPartidaAsync();
@@ -117,27 +143,102 @@ internal sealed class FormularioInicio : Form
     }
 
     /// <inheritdoc/>
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        Dibujo.Calidad(g);
+        Dibujo.FondoTablero(g, ClientRectangle);
+
+        float t = Math.Min(1f, (Environment.TickCount64 - _inicioAnimacion) / (float)DuracionEntradaMs);
+        if (_inicioAnimacion == 0)
+        {
+            t = 0f;
+        }
+
+        // Logotipo: aparece suavemente y baja unos píxeles.
+        float aparicion = Suavizar(Math.Min(1f, t / 0.6f));
+        RectangleF logo = new RectangleF(200, 14 + ((1f - aparicion) * 14f), 540, 118);
+        Logotipo.Dibujar(g, logo, aparicion, _faseLuces);
+        using (Font subtitulo = Tema.Texto(11f, FontStyle.Bold))
+        {
+            Dibujo.TextoCentrado(g, Tema.Subtitulo, subtitulo, Tema.ConOpacidad(Tema.VerdeProfundo, aparicion), new RectangleF(0, 136, ClientSize.Width, 26));
+        }
+
+        // Dados que giran y caen junto al logotipo.
+        float giro = 1f - Suavizar(t);
+        DibujoDado.Dibujar(g, new PointF(118, 78), 62, -16f + (giro * 540f), _dado1, Math.Min(1f, t * 3f));
+        DibujoDado.Dibujar(g, new PointF(822, 82), 62, 14f - (giro * 620f), _dado2, Math.Min(1f, t * 3f));
+    }
+
+    /// <inheritdoc/>
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         // Si se cierra sin haber entrado a la partida, se libera la conexión pendiente.
+        _animacion.Dispose();
+        _notificaciones.Dispose();
         _sesionPendiente?.Dispose();
         base.OnFormClosed(e);
+    }
+
+    private static float Suavizar(float t)
+    {
+        float inverso = 1f - t;
+        return 1f - (inverso * inverso * inverso);
+    }
+
+    private void Animar()
+    {
+        long transcurrido = Environment.TickCount64 - _inicioAnimacion;
+        if (transcurrido < DuracionEntradaMs * 0.8f && transcurrido / 90 != (transcurrido - 16) / 90)
+        {
+            _dado1 = _azar.Next(1, 7);
+            _dado2 = _azar.Next(1, 7);
+        }
+        else if (transcurrido >= DuracionEntradaMs * 0.8f)
+        {
+            _dado1 = 5;
+            _dado2 = 3;
+        }
+
+        // Las luces de la marquesina avanzan despacio; la entrada se anima a 60 cuadros por segundo.
+        int fase = (int)(transcurrido / 650);
+        bool cambiaronLuces = fase != _faseLuces;
+        _faseLuces = fase;
+        if (transcurrido <= DuracionEntradaMs + 50 || cambiaronLuces)
+        {
+            Invalidate(new Rectangle(0, 0, ClientSize.Width, AltoCabecera));
+        }
+
+        if (transcurrido > DuracionEntradaMs + 50)
+        {
+            _animacion.Interval = 200;
+        }
+    }
+
+    private void EnterUne(KeyEventArgs e)
+    {
+        if (e.KeyCode == Keys.Enter)
+        {
+            e.SuppressKeyPress = true;
+            _btnUnirse.PerformClick();
+        }
     }
 
     private async Task CrearPartidaAsync()
     {
         string? nombre = ValidarNombre();
-        if (nombre == null)
+        int? maximo = ValidarEntero(_txtMaximoTurnos, 1, 2000, "Entre 1 y 2000 turnos.");
+        int? puerto = ValidarEntero(_txtPuertoCrear, 1024, 65535, "Entre 1024 y 65535.");
+        if (nombre == null || maximo == null || puerto == null)
         {
             return;
         }
 
-        int puerto = (int)_nudPuertoCrear.Value;
         Servidor servidor;
         try
         {
-            Juego juego = new Juego(new OpcionesJuego { MaximoTurnos = (int)_nudMaximoTurnos.Value });
-            servidor = new Servidor(juego, puerto);
+            Juego juego = new Juego(new OpcionesJuego { MaximoTurnos = maximo.Value });
+            servidor = new Servidor(juego, puerto.Value);
             servidor.Iniciar();
         }
         catch (SocketException ex)
@@ -145,38 +246,32 @@ internal sealed class FormularioInicio : Form
             string detalle = ex.SocketErrorCode == SocketError.AddressAlreadyInUse
                 ? $"El puerto {puerto} ya está en uso en esta computadora (¿hay otra partida abierta?). Cierre la otra partida o elija otro puerto."
                 : $"No se pudo abrir el puerto {puerto}: {ex.Message}";
-            MostrarError(detalle, "No se pudo crear la partida");
+            _txtPuertoCrear.MostrarError("Puerto ocupado o no disponible.");
+            _notificaciones.Mostrar(detalle, TipoNotificacion.Error, 8000);
             return;
         }
 
         // El organizador se conecta a su propio servidor como un cliente más.
-        await ConectarAsync("127.0.0.1", puerto, nombre, servidor);
+        await ConectarAsync("127.0.0.1", puerto.Value, nombre, servidor, _btnCrear);
     }
 
     private async Task UnirseAsync()
     {
         string? nombre = ValidarNombre();
-        string ip = _txtIp.Text.Trim();
-        if (nombre == null)
+        string ip = _txtIp.Valor.Trim();
+        bool ipValida = ip.Length > 0 && EsDireccionValida(ip);
+        if (!ipValida)
+        {
+            _txtIp.MostrarError(ip.Length == 0 ? "Escriba la IP del organizador." : "Debe tener la forma 192.168.1.20.");
+        }
+
+        int? puerto = ValidarEntero(_txtPuertoUnirse, 1, 65535, "Entre 1 y 65535.");
+        if (nombre == null || !ipValida || puerto == null)
         {
             return;
         }
 
-        if (ip.Length == 0)
-        {
-            MostrarError("Escriba la IP de la computadora del organizador (se muestra en su sala de espera).");
-            _txtIp.Focus();
-            return;
-        }
-
-        if (!EsDireccionValida(ip))
-        {
-            MostrarError($"'{ip}' no es una IP válida. Debe tener la forma 192.168.1.20 (cuatro números separados por puntos).", "IP incorrecta");
-            _txtIp.Focus();
-            return;
-        }
-
-        await ConectarAsync(ip, (int)_nudPuertoUnirse.Value, nombre, null);
+        await ConectarAsync(ip, puerto.Value, nombre, null, _btnUnirse);
     }
 
     /// <summary>
@@ -216,10 +311,11 @@ internal sealed class FormularioInicio : Form
         return true;
     }
 
-    private async Task ConectarAsync(string host, int puerto, string nombre, Servidor? servidor)
+    private async Task ConectarAsync(string host, int puerto, string nombre, Servidor? servidor, BotonRedondeado boton)
     {
-        HabilitarBotones(false);
-        MostrarInformacion($"Conectando a {host}:{puerto}...");
+        string textoBoton = boton.Text;
+        HabilitarControles(false);
+        boton.Text = "Conectando...";
 
         SesionJuego sesion = new SesionJuego(new Cliente(), servidor, host, puerto);
         _sesionPendiente = sesion;
@@ -235,14 +331,16 @@ internal sealed class FormularioInicio : Form
             sesion.ErrorRecibido -= alError;
             sesion.Desconectado -= alError;
             _sesionPendiente = null;
+            boton.Text = textoBoton;
         }
 
         void Fallar(string mensaje)
         {
             Terminar();
             sesion.Dispose();
-            MostrarError(mensaje, "No se pudo unir a la partida");
-            HabilitarBotones(true);
+            MarcarCampoDelError(mensaje);
+            _notificaciones.Mostrar(mensaje, TipoNotificacion.Error, 8000);
+            HabilitarControles(true);
         }
 
         alBienvenida = (id, nombreConfirmado) =>
@@ -251,7 +349,7 @@ internal sealed class FormularioInicio : Form
             SesionCreada?.Invoke(sesion);
         };
 
-        // Rechazos del servidor: partida llena, ya iniciada, nombre repetido, etc. (el texto viene del banco).
+        // Rechazos del servidor: partida llena, ya iniciada, nombre o ficha repetidos, etc. (el texto viene del banco).
         alError = mensaje => Fallar(mensaje);
         sesion.BienvenidaRecibida += alBienvenida;
         sesion.ErrorRecibido += alError;
@@ -270,75 +368,94 @@ internal sealed class FormularioInicio : Form
         }
 
         esperaRespuesta.Start();
-        sesion.Solicitar(cliente => cliente.Unirse(nombre));
+
+        // Con los argumentos de prueba (--crear/--unirse) el servidor asigna la primera ficha libre, para que
+        // varias ventanas abiertas a la vez no choquen con la misma.
+        bool automatico = _argumentos.Modo != ModoInicio.Normal;
+        Core.Modelo.FormaFicha forma = _selectorFicha.Forma;
+        Core.Modelo.ColorFicha color = _selectorFicha.ColorElegido;
+        sesion.Solicitar(cliente =>
+        {
+            if (automatico)
+            {
+                cliente.Unirse(nombre);
+            }
+            else
+            {
+                cliente.Unirse(nombre, forma, color);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Marca en rojo el campo al que se refiere un rechazo del servidor (nombre repetido, por ejemplo).
+    /// </summary>
+    private void MarcarCampoDelError(string mensaje)
+    {
+        if (mensaje.Contains("llamado", StringComparison.Ordinal) || mensaje.Contains("nombre", StringComparison.OrdinalIgnoreCase))
+        {
+            _txtNombre.MostrarError("Elija otro nombre.");
+        }
     }
 
     private string? ValidarNombre()
     {
-        string nombre = _txtNombre.Text.Trim();
+        string nombre = _txtNombre.Valor.Trim();
         if (nombre.Length == 0)
         {
-            MostrarError("Escriba su nombre.");
-            _txtNombre.Focus();
+            _txtNombre.MostrarError("Escriba su nombre.");
+            _txtNombre.Enfocar();
             return null;
         }
 
         if (nombre.IndexOf('|') >= 0)
         {
-            MostrarError("El nombre no puede contener el carácter |.");
+            _txtNombre.MostrarError("No puede contener el carácter |.");
+            _txtNombre.Enfocar();
             return null;
         }
 
         return nombre;
     }
 
+    private static int? ValidarEntero(CampoTexto campo, int minimo, int maximo, string mensaje)
+    {
+        int? valor = campo.ValorEntero;
+        if (valor == null || valor < minimo || valor > maximo)
+        {
+            campo.MostrarError(mensaje);
+            return null;
+        }
+
+        return valor;
+    }
+
     private void AplicarArgumentos()
     {
-        _txtNombre.Text = _argumentos.Nombre ?? string.Empty;
+        _txtNombre.Valor = _argumentos.Nombre ?? string.Empty;
         if (_argumentos.Host != null)
         {
-            _txtIp.Text = _argumentos.Host;
+            _txtIp.Valor = _argumentos.Host;
         }
 
         if (_argumentos.Puerto.HasValue)
         {
-            _nudPuertoCrear.Value = _argumentos.Puerto.Value;
-            _nudPuertoUnirse.Value = _argumentos.Puerto.Value;
+            string puerto = _argumentos.Puerto.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            _txtPuertoCrear.Valor = puerto;
+            _txtPuertoUnirse.Valor = puerto;
         }
 
         if (_argumentos.MaximoTurnos.HasValue)
         {
-            _nudMaximoTurnos.Value = Math.Min(Math.Max(_argumentos.MaximoTurnos.Value, 1), 2000);
+            _txtMaximoTurnos.Valor = Math.Min(Math.Max(_argumentos.MaximoTurnos.Value, 1), 2000).ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
     }
 
-    private void HabilitarBotones(bool habilitar)
+    private void HabilitarControles(bool habilitar)
     {
         _btnCrear.Enabled = habilitar;
         _btnUnirse.Enabled = habilitar;
-    }
-
-    /// <summary>
-    /// Muestra un error en la etiqueta y, si se indica un título, también en un cuadro de diálogo.
-    /// </summary>
-    private void MostrarError(string mensaje, string? titulo = null)
-    {
-        _lblEstado.ForeColor = Color.FromArgb(170, 20, 20);
-        _lblEstado.Text = mensaje;
-        if (titulo != null && Visible)
-        {
-            MessageBox.Show(this, mensaje, titulo, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        }
-    }
-
-    private void MostrarInformacion(string mensaje)
-    {
-        _lblEstado.ForeColor = Color.DimGray;
-        _lblEstado.Text = mensaje;
-    }
-
-    private static NumericUpDown CrearNumero(int minimo, int maximo, int valor)
-    {
-        return new NumericUpDown { Minimum = minimo, Maximum = maximo, Value = valor };
+        _txtNombre.Enabled = habilitar;
+        _selectorFicha.Enabled = habilitar;
     }
 }
