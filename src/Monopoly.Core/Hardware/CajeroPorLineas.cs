@@ -52,7 +52,13 @@ public abstract class CajeroPorLineas : IDispositivoCajero
     }
 
     /// <inheritdoc/>
-    public void LimpiarDisplays()
+    public void IndicarPago(bool aceptado)
+    {
+        EnviarSiConectado(aceptado ? ProtocoloCajero.PagoOk : ProtocoloCajero.PagoRechazado);
+    }
+
+    /// <inheritdoc/>
+    public void Limpiar()
     {
         EnviarSiConectado(ProtocoloCajero.Limpiar);
     }

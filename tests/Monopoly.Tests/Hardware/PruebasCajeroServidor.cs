@@ -214,6 +214,8 @@ public class PruebasCajeroServidor : IDisposable
         EsperarAvisoEnTodos("La tarjeta pertenece a Carla; se espera la tarjeta de Beto.");
         _cajero.Inyectar("RFID:EEEEEEEE");
         EsperarAvisoEnTodos("La tarjeta EEEEEEEE no está registrada");
+        Assert.Equal(2, ContarEnviadas("PAGO_RECHAZADO"));
+        Assert.Equal(0, ContarEnviadas("PAGO_OK"));
 
         _cajero.Inyectar("RFID:" + TarjetaBeto);
 
@@ -226,10 +228,24 @@ public class PruebasCajeroServidor : IDisposable
 
         _beto.Cliente.ConsultarTransacciones(FiltroTransacciones.Tipo, "PagoAlquiler");
         Assert.Equal(1, SerializadorTransacciones.Decodificar(_beto.Esperar(Protocolo.Transacciones)).Cantidad);
+        Assert.Equal(1, ContarEnviadas("PAGO_OK"));
 
-        // Fuera de un pago, la tarjeta solo informa de quién es y su saldo.
+        // Fuera de un pago, la tarjeta solo informa de quién es y su saldo (y no toca el LED de pago).
         _cajero.Inyectar("RFID:" + TarjetaBeto);
         EsperarAvisoEnTodos("Tarjeta de Beto: saldo $1,496.");
+        Assert.Equal(1, ContarEnviadas("PAGO_OK"));
+        Assert.Equal(2, ContarEnviadas("PAGO_RECHAZADO"));
+    }
+
+    private int ContarEnviadas(string linea)
+    {
+        int cantidad = 0;
+        foreach (string enviada in _cajero.Enviadas())
+        {
+            cantidad += enviada == linea ? 1 : 0;
+        }
+
+        return cantidad;
     }
 
     [Fact]

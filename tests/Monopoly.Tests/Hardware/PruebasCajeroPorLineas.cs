@@ -86,9 +86,11 @@ public class PruebasCajeroPorLineas
 
         _cajero.Conectar();
         _cajero.MostrarDados(3, 5);
-        _cajero.LimpiarDisplays();
+        _cajero.IndicarPago(true);
+        _cajero.IndicarPago(false);
+        _cajero.Limpiar();
 
-        Assert.Equal(new[] { "DADOS:3,5", "LIMPIAR" }, _cajero.Enviadas());
+        Assert.Equal(new[] { "DADOS:3,5", "PAGO_OK", "PAGO_RECHAZADO", "LIMPIAR" }, _cajero.Enviadas());
         Assert.Throws<ArgumentOutOfRangeException>(() => _cajero.MostrarDados(0, 7));
     }
 

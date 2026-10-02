@@ -20,10 +20,16 @@ public static class ProtocoloCajero
     /// <summary>Pico → PC: <c>ERROR:&lt;detalle&gt;</c>.</summary>
     public const string PrefijoError = "ERROR:";
 
-    /// <summary>PC → Pico: <c>DADOS:d1,d2</c>.</summary>
+    /// <summary>PC → Pico: <c>DADOS:d1,d2</c> (la Pico confirma la recepción con un destello del LED integrado).</summary>
     public const string PrefijoDados = "DADOS:";
 
-    /// <summary>PC → Pico: apagar los displays.</summary>
+    /// <summary>PC → Pico: pago aceptado (LED de pago encendido 2 s).</summary>
+    public const string PagoOk = "PAGO_OK";
+
+    /// <summary>PC → Pico: pago rechazado (LED de pago, 3 parpadeos rápidos).</summary>
+    public const string PagoRechazado = "PAGO_RECHAZADO";
+
+    /// <summary>PC → Pico: apagar el LED de pago.</summary>
     public const string Limpiar = "LIMPIAR";
 
     /// <summary>PC → Pico: comprobar la conexión.</summary>

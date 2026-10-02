@@ -45,7 +45,12 @@ public sealed class CajeroSimulado : IDispositivoCajero
     }
 
     /// <inheritdoc/>
-    public void LimpiarDisplays()
+    public void IndicarPago(bool aceptado)
+    {
+    }
+
+    /// <inheritdoc/>
+    public void Limpiar()
     {
     }
 

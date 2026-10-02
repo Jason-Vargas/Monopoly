@@ -1,14 +1,15 @@
 # Módulo electrónico (cajero): Raspberry Pi Pico W + MicroPython
 
-El módulo hace de **dado electrónico** (2 displays de 7 segmentos y un botón) y de **lector de tarjetas RFID** (RC522). Se conecta por **USB** a la computadora del organizador, que aloja al banco. Los dados **no** se generan en la Pico: el botón pide la tirada al servidor, que la calcula (el estado oficial vive en el banco) y la envía de vuelta para mostrarla. La tarjeta solo identifica al jugador; el saldo está siempre en el servidor.
+El módulo tiene un **lector de tarjetas RFID** (RC522), un **botón** (pide la tirada de dados) y un **LED de pago** (confirma o rechaza un pago). Se conecta por **USB** a la computadora del organizador, que aloja al banco. Los dados **no** se generan en la Pico: el botón pide la tirada al servidor, que la calcula (el estado oficial vive en el banco). La tarjeta solo identifica al jugador; el saldo está siempre en el servidor.
 
 ```
 hardware/
-├── README.md          este documento
-└── pico/
-    ├── main.py        programa principal (se ejecuta al encender la Pico)
-    ├── mfrc522.py     driver mínimo del RC522 (lee el UID)
-    └── prueba_uid.py  utilidad para ver y anotar el UID de cada tarjeta
+├── README.md            este documento
+├── pico/                archivos para copiar a la Pico W
+│   ├── main.py          programa principal (se ejecuta al encender la Pico)
+│   ├── mfrc522.py       driver del RC522 (el original que funciona en la placa, sin cambios)
+│   └── prueba_uid.py    utilidad para ver y anotar el UID de cada tarjeta (no se copia a la Pico)
+└── pico_original/       copia de los archivos que había en la Pico antes de esta versión
 ```
 
 ## 1. Materiales
@@ -19,74 +20,42 @@ hardware/
 | 1 | Cable USB a micro-USB **de datos** | algunos cables solo cargan |
 | 1 | Módulo lector RFID RC522 (13,56 MHz) | se alimenta a **3,3 V** |
 | 2+ | Tarjetas o llaveros RFID MIFARE (13,56 MHz) | normalmente vienen con el RC522 |
-| 2 | Displays de 7 segmentos de 1 dígito (0,56") | **rojos** (ver 3.2), ambos del mismo tipo: cátodo común o ánodo común |
-| 14 | Resistencias de 470 Ω | una por segmento |
-| 1 | Botón pulsador (4 patas) | |
-| 1 | Protoboard grande (o 2 medianas) y cables dupont macho-macho | |
+| 1 | Botón pulsador | |
+| 1 | LED (por ejemplo rojo o verde de 5 mm) | LED de pago |
+| 1 | Resistencia de 330 Ω | en serie con el LED (ver 2.3) |
+| — | Protoboard y cables dupont | |
 
 ## 2. Conexiones
 
-### 2.1 Lector RC522 (SPI0)
+### 2.1 Tabla de pines
 
-| RC522 | Pico W | Pin físico |
-|---|---|---|
-| SDA (CS) | GP17 | 22 |
-| SCK | GP18 | 24 |
-| MOSI | GP19 | 25 |
-| MISO | GP16 | 21 |
-| IRQ | sin conectar | — |
-| GND | GND | 23 (o cualquier GND) |
-| RST | GP20 | 26 |
-| 3.3V | **3V3(OUT)** | 36 |
+| Elemento | Señal | Pico W | Pin físico |
+|---|---|---|---|
+| RC522 | SDA (CS) | GP17 | 22 |
+| RC522 | SCK | GP18 | 24 |
+| RC522 | MOSI | GP19 | 25 |
+| RC522 | MISO | GP16 | 21 |
+| RC522 | RST | GP20 | 26 |
+| RC522 | IRQ | sin conectar | — |
+| RC522 | 3.3V | **3V3(OUT)** | 36 |
+| RC522 | GND | GND | 23 (o cualquier GND) |
+| Botón | una pata | GP15 | 20 |
+| Botón | otra pata | GND | 18 |
+| LED de pago | ánodo (pata larga), a través de la resistencia | GP14 | 19 |
+| LED de pago | cátodo (pata corta) | GND | 18 (o cualquier GND) |
+| LED indicador | integrado en la placa | `Pin("LED")` | — |
 
 > **Nunca** alimente el RC522 desde VBUS (pin 40) ni VSYS (pin 39): son ~5 V y dañan el módulo.
 
-### 2.2 Displays (conexión directa, sin multiplexar)
+### 2.2 Botón
 
-Cada segmento va a un GPIO **a través de su resistencia de 470 Ω**. El punto decimal (dp) no se usa.
+Entre **GP15** y **GND**, sin resistencia externa: el programa usa la resistencia **pull-up interna** (`Pin(15, Pin.IN, Pin.PULL_UP)`). Suelto lee 1 y presionado lee 0. El programa detecta el **flanco de bajada** con un antirrebote de 50 ms y envía `BOTON` **una sola vez por pulsación**, aunque se mantenga presionado. En un pulsador de 4 patas use dos patas en diagonal.
 
-| Segmento | Display 1 (dado 1) | Pin físico | Display 2 (dado 2) | Pin físico |
-|---|---|---|---|---|
-| a | GP2 | 4 | GP9 | 12 |
-| b | GP3 | 5 | GP10 | 14 |
-| c | GP4 | 6 | GP11 | 15 |
-| d | GP5 | 7 | GP12 | 16 |
-| e | GP6 | 9 | GP13 | 17 |
-| f | GP7 | 10 | GP14 | 19 |
-| g | GP8 | 11 | GP15 | 20 |
-| común (cátodo común) | GND | 3, 8, 13 o 18 | GND | 3, 8, 13 o 18 |
-| común (ánodo común) | 3V3(OUT) | 36 | 3V3(OUT) | 36 |
+### 2.3 LED de pago
 
-Los pines comunes van **directos** (sin resistencia). En `main.py`, ajuste la constante según sus displays:
+**GP14 → resistencia → ánodo del LED; cátodo del LED → GND** (activo en alto: un 1 lo enciende). Con 330 Ω, un LED rojo (≈ 2 V) consume (3,3 V − 2 V) / 330 Ω ≈ 4 mA, que es la corriente por defecto de un GPIO de la Pico. Con 220 Ω se ve más brillante (≈ 6 mA), todavía dentro de lo que admite el pin.
 
-```python
-CATODO_COMUN = True    # cátodo común (común a GND)
-CATODO_COMUN = False   # ánodo común (común a 3V3(OUT))
-```
-
-Distribución habitual de un display de 1 dígito de 10 pines (por ejemplo 5161AS = cátodo común, 5161BS = ánodo común), visto de frente con el punto decimal abajo a la derecha — **confírmela con la hoja de datos o con el multímetro en modo diodo**:
-
-```
-   10  9  8  7  6          10 = g   9 = f   8 = común   7 = a   6 = b
-    ┌───────────┐
-    │    ─a─    │           1 = e   2 = d   3 = común   4 = c   5 = dp
-    │  f│   │b  │
-    │    ─g─    │
-    │  e│   │c  │
-    │    ─d─  ● │
-    └───────────┘
-    1  2  3  4  5
-```
-
-### 2.3 Botón y LED
-
-| Elemento | Conexión | Pin físico |
-|---|---|---|
-| Botón, una pata | GP21 | 27 |
-| Botón, pata opuesta | GND | 28 |
-| LED indicador | integrado en la Pico W (`Pin("LED")`) | — |
-
-El botón usa la resistencia **pull-up interna** de GP21: suelto lee 1, presionado lee 0. En un pulsador de 4 patas, use dos patas en diagonal para no conectarlo "siempre cerrado".
+El LED **no** se enciende al leer la tarjeta: solo cuando el juego confirma el resultado del pago.
 
 ### 2.4 Diagrama
 
@@ -96,30 +65,39 @@ flowchart LR
 
     subgraph PICO["Raspberry Pi Pico W"]
         SPI0["SPI0<br/>GP16 MISO · GP17 CS · GP18 SCK · GP19 MOSI<br/>GP20 RST"]
-        D1P["GP2–GP8"]
-        D2P["GP9–GP15"]
-        BTP["GP21 (pull-up)"]
-        V33["3V3(OUT) · GND"]
+        G15["GP15 (pull-up interno)"]
+        G14["GP14 (salida)"]
+        ALIM["3V3(OUT) · GND"]
         LED["LED integrado"]
     end
 
     SPI0 --- RC["Lector RC522"]
-    V33 ---|3,3 V y GND| RC
-    D1P ---|"7 × 470 Ω (a–g)"| D1["Display 1<br/>(dado 1)"]
-    D2P ---|"7 × 470 Ω (a–g)"| D2["Display 2<br/>(dado 2)"]
-    V33 ---|"común: GND (cátodo) o 3V3 (ánodo)"| D1
-    V33 --- D2
-    BTP --- BT["Botón"] ---|GND| V33
+    ALIM ---|3,3 V y GND| RC
+    G15 --- BT["Botón"] ---|GND| ALIM
+    G14 ---|330 Ω| LP["LED de pago"] ---|cátodo a GND| ALIM
 ```
 
-## 3. Justificación de la resistencia de 470 Ω
+## 3. Protocolo serie (Pico ↔ computadora)
 
-1. **Corriente por segmento.** Los GPIO de la Pico W trabajan a 3,3 V. Un segmento rojo tiene una caída directa de ~1,9 V:
-   I = (3,3 V − 1,9 V) / 470 Ω ≈ **3,0 mA** por segmento.
-2. **Límite por pin.** Cada GPIO del RP2040 entrega por defecto hasta 4 mA (configurable a 2, 4, 8 o 12 mA). 3 mA queda dentro del valor por defecto, sin tocar la configuración.
-3. **Límite total.** La hoja de datos del RP2040 recomienda no superar unos **50 mA en total** entre todos los GPIO. Sin multiplexar, el peor caso es "8 8": 14 segmentos encendidos × 3 mA ≈ **42 mA**, por debajo del límite. Con 330 Ω serían ~4,2 mA × 14 ≈ 59 mA, y con 220 Ω ~6,4 mA × 14 ≈ 89 mA: **470 Ω es el valor comercial más bajo que respeta el límite**, y a 3 mA un display rojo se ve bien en interiores.
-4. **Cátodo o ánodo común.** Con cátodo común los GPIO entregan la corriente; con ánodo común la absorben y la entrega el regulador de 3V3(OUT) (hasta ~300 mA). En ambos casos cada pin maneja ~3 mA.
-5. **Color.** Use displays **rojos** (o naranjas o amarillos). Los azules, blancos o verdes puros necesitan ~3 V y casi no encienden a 3,3 V con 470 Ω.
+Una línea de texto por mensaje (la Pico termina sus líneas con `\r\n`). Por el serial **solo salen líneas del protocolo**: no hay banners ni mensajes decorativos.
+
+| Dirección | Mensaje | Significado |
+|---|---|---|
+| Pico → PC | `LISTO` | el programa arrancó |
+| Pico → PC | `BOTON` | se presionó el botón (una vez por pulsación) |
+| Pico → PC | `RFID:<UID>` | tarjeta leída: **4 bytes** del UID en hexadecimal, mayúsculas, sin espacios (por ejemplo `RFID:A1B2C3D4`). `anticoll()` devuelve 5 bytes: el quinto es el checksum (BCC) y no forma parte del UID |
+| Pico → PC | `PONG` | respuesta a `PING` |
+| PC → Pico | `DADOS:d1,d2` | tirada calculada por el servidor; la Pico solo confirma la recepción con un destello del LED integrado |
+| PC → Pico | `PAGO_OK` | pago aceptado: LED de pago encendido 2 segundos |
+| PC → Pico | `PAGO_RECHAZADO` | pago rechazado: el LED de pago parpadea rápido 3 veces |
+| PC → Pico | `LIMPIAR` | apaga el LED de pago |
+| PC → Pico | `PING` | comprobar la conexión (responde `PONG`) |
+
+Comportamiento:
+- **Tarjetas:** la misma tarjeta no se repite mientras siga apoyada ni hasta 2 s después de retirarla (se controla con `time.ticks_ms()`, sin `sleep`); una tarjeta **distinta** se lee de inmediato.
+- **Sin bloqueos:** el bucle revisa el botón cada ~10 ms, el lector cada ~100 ms y la entrada serial sin esperar (`sys.stdin` con `select.poll`). El encendido de 2 s y los parpadeos del LED también se controlan con `time.ticks_ms()`: el botón y el lector siguen funcionando mientras el LED está activo.
+- **LED integrado:** destella al presionar el botón, al leer una tarjeta y al recibir `DADOS`.
+- **Errores:** las excepciones dentro del bucle se capturan y el programa sigue funcionando. Los comandos desconocidos se ignoran sin responder. Para depurar en Thonny, ponga `DEPURAR = True` en `main.py`: los errores se imprimen como líneas que empiezan por `#` (el juego las ignora).
 
 ## 4. Instalar MicroPython en la Pico W
 
@@ -131,62 +109,48 @@ flowchart LR
 ## 5. Copiar los programas con Thonny
 
 1. Instale Thonny desde <https://thonny.org>.
-2. Conecte la Pico (sin BOOTSEL). En Thonny: **Herramientas → Opciones → Intérprete** → *MicroPython (Raspberry Pi Pico)*, y elija el puerto (o "detectar automáticamente"). En la consola (Shell) debe aparecer `>>>`.
-3. Abra `hardware/pico/mfrc522.py` → **Archivo → Guardar como… → Raspberry Pi Pico** → nombre exacto `mfrc522.py`.
-4. Abra `hardware/pico/main.py`. Revise `CATODO_COMUN` y guárdelo igual en la Pico como `main.py`.
-5. (Opcional) Abra `prueba_uid.py` y ejecútelo con **Run (F5)** sin guardarlo: imprime el UID de cada tarjeta para anotarlo.
+2. Conecte la Pico (sin BOOTSEL). En Thonny: **Herramientas → Opciones → Intérprete** → *MicroPython (Raspberry Pi Pico)* y elija el puerto (o "detectar automáticamente"). En la consola (Shell) debe aparecer `>>>`; si hay un programa corriendo, pulse **Stop**.
+3. Abra `hardware/pico/mfrc522.py` → **Archivo → Guardar como… → Raspberry Pi Pico** → nombre exacto `mfrc522.py` (si pregunta, reemplace el existente).
+4. Abra `hardware/pico/main.py` → **Archivo → Guardar como… → Raspberry Pi Pico** → `main.py`.
+5. (Opcional) Para anotar los UID, abra `prueba_uid.py` y pulse **Run (F5)** sin guardarlo en la Pico.
 
 `main.py` se ejecuta automáticamente cada vez que la Pico recibe alimentación.
 
 ## 6. Probar desde la consola de Thonny
 
-Con `main.py` abierto, pulse **Run (F5)**:
+Con `main.py` abierto, pulse **Run (F5)**. En la consola aparece `LISTO`. Luego:
 
-1. Los displays muestran **8 8** un instante (prueba de segmentos) y se apagan. En la consola aparece `LISTO`.
-2. Escriba `DADOS:3,5` y Enter: los dos displays "giran" y quedan en **3** y **5**; el LED parpadea.
-3. Escriba `LIMPIAR`: se apagan los displays.
-4. Escriba `PING`: responde `PONG`.
-5. Acerque una tarjeta: aparece `RFID:A1B2C3D4` (su UID) y el LED parpadea. Si deja la tarjeta apoyada, no se repite; retírela 2 s y vuelva a acercarla para que se lea de nuevo.
-6. Presione el botón: aparece `BOTON` (una vez por pulsación).
-7. Escriba algo inválido, por ejemplo `DADOS:9,1`: responde `ERROR:formato de DADOS invalido...` y el programa sigue funcionando.
+| Acción | Resultado esperado |
+|---|---|
+| Presionar el botón (y mantenerlo) | Una sola línea `BOTON`; destello del LED integrado |
+| Acercar una tarjeta | `RFID:A1B2C3D4` (su UID) y destello del LED integrado; dejándola apoyada no se repite |
+| Acercar otra tarjeta | Su UID aparece de inmediato |
+| Escribir `PING` + Enter | `PONG` |
+| Escribir `DADOS:3,5` | Destello del LED integrado (no responde nada) |
+| Escribir `PAGO_OK` | LED de GP14 encendido 2 segundos |
+| Escribir `PAGO_RECHAZADO` | LED de GP14 parpadea rápido 3 veces |
+| Escribir `LIMPIAR` | Apaga el LED de GP14 |
+
+Mientras el LED de pago está encendido o parpadeando, el botón y el lector siguen respondiendo.
 
 **Antes de abrir el juego, cierre Thonny**: el puerto serie solo lo puede usar un programa a la vez.
 
-## 7. Protocolo serie (Pico ↔ computadora)
+## 7. Integración con el juego
 
-Una línea de texto por mensaje. La velocidad (baudios) no importa en el USB de la Pico; use 115200. La Pico termina las líneas con `\r\n`.
-
-| Dirección | Mensaje | Significado |
-|---|---|---|
-| Pico → PC | `LISTO` | el programa arrancó |
-| Pico → PC | `BOTON` | se presionó el botón (pedir la tirada del jugador en turno) |
-| Pico → PC | `RFID:<UID>` | tarjeta leída; UID en hexadecimal en mayúsculas, 8 o 14 caracteres |
-| Pico → PC | `PONG` | respuesta a `PING` |
-| Pico → PC | `ERROR:<detalle>` | problema del módulo (por ejemplo, RC522 desconectado); sigue funcionando |
-| PC → Pico | `DADOS:d1,d2` | mostrar la tirada calculada por el servidor (valores de 1 a 6) |
-| PC → Pico | `LIMPIAR` | apagar los displays |
-| PC → Pico | `PING` | comprobar la conexión |
-
-Notas para el programa de la computadora:
-- `LISTO` se envía al arrancar, quizá antes de que la computadora abra el puerto: al conectarse, envíe `PING` y espere `PONG`.
-- No envíe nunca el carácter Ctrl+C (0x03): MicroPython lo interpreta como "detener el programa".
-
-## 8. Integración con el juego
-
-La Pico se conecta a la computadora del **organizador**, que aloja al banco. Los demás jugadores no necesitan nada: ven en su pantalla todo lo que pasa en el cajero.
+La Pico se conecta a la computadora del **organizador**. Los demás jugadores no necesitan nada: ven en su pantalla todo lo que pasa en el cajero.
 
 ### Conectar
 
-1. Cierre Thonny (el puerto solo lo puede usar un programa a la vez).
+1. Cierre Thonny.
 2. Conecte la Pico por USB y abra el juego → **Crear partida**.
 3. En la barra **Cajero (Pico W)** (arriba en la sala de espera y en la ventana de juego del organizador):
    - elija el puerto COM y pulse **Conectar**, o
    - pulse **Detectar**: el juego prueba cada puerto enviando `PING` y se conecta al que responde `PONG`.
-4. El indicador muestra el estado: `○ Sin cajero: modo simulado`, `● Pico W en COM5: …` (verde) o `● … desconectado: modo simulado` (naranja).
+4. El indicador muestra `○ Sin cajero: modo simulado`, `● Pico W en COM5: …` (verde) o `● … desconectado: modo simulado` (naranja).
 
-El puerto se abre a 115200 baudios, con `NewLine = "\n"` y **DTR y RTS activos** (sin DTR la Pico puede no enviar datos al PC). Un hilo aparte lee las líneas; las que no son del protocolo (mensajes de arranque de MicroPython, eco de la consola, UIDs mal formados) se ignoran. Cada 2 s se envía `PING`; si la Pico deja de responder durante ~7 s o se desconecta el cable, el juego **vuelve solo al modo simulado** sin cerrar la partida, y se puede pulsar **Conectar** de nuevo.
+El puerto se abre a 115200 baudios, con `NewLine = "\n"` y **DTR y RTS activos** (sin DTR la Pico puede no enviar datos al PC). Un hilo aparte lee las líneas; las que no son del protocolo (por ejemplo, los mensajes de arranque de MicroPython) se ignoran. Cada 2 s se envía `PING`; si la Pico deja de responder durante ~7 s o se desconecta el cable, el juego **vuelve solo al modo simulado** sin cerrar la partida, y se puede pulsar **Conectar** de nuevo.
 
-En Windows, la Pico con MicroPython aparece en el Administrador de dispositivos como "Dispositivo serie USB (COMx)" (USB VID `2E8A`, PID `0005`).
+En Windows, la Pico con MicroPython aparece como "Dispositivo serie USB (COMx)" (USB VID `2E8A`, PID `0005`).
 
 ### Registrar las tarjetas (sala de espera)
 
@@ -199,17 +163,16 @@ En Windows, la Pico con MicroPython aparece en el Administrador de dispositivos 
 | En el cajero | Qué hace el servidor |
 |---|---|
 | Se presiona el **botón** | Lo trata como `TIRAR_DADOS` del jugador en turno, con todas las validaciones (fuera de partida o dados ya lanzados → aviso en todas las pantallas). Genera la tirada, envía `DADOS:d1,d2` a la Pico y la difunde a todos los jugadores. |
-| Un jugador tira desde su pantalla | La tirada también se envía a la Pico para mostrarla en los displays. |
-| Se lee una tarjeta **con un pago pendiente** | `IdentificarTarjeta(uid)`: si es la del deudor, se ejecuta el pago, se registra la transacción y todos lo ven; si es de otro jugador o no está registrada, se rechaza con un aviso. |
-| Se lee una tarjeta **sin pago pendiente** | Solo se informa de quién es y su saldo ("Cajero: Tarjeta de Beto: saldo $1,496."), sin modificar nada. |
-| El módulo envía `ERROR:…` | Se muestra "Cajero: Error del módulo: …" en todas las pantallas. |
+| Un jugador tira desde su pantalla | La tirada también se envía a la Pico (`DADOS:d1,d2`). |
+| Se lee una tarjeta **con un pago pendiente** | `IdentificarTarjeta(uid)`: si es la del deudor, se ejecuta el pago, se registra la transacción, todos lo ven y se envía **`PAGO_OK`**; si es de otro jugador o no está registrada, se rechaza con un aviso y se envía **`PAGO_RECHAZADO`**. |
+| Se lee una tarjeta **sin pago pendiente** | Solo se informa de quién es y su saldo ("Cajero: Tarjeta de Beto: saldo $1,496."), sin modificar nada ni tocar el LED de pago. |
 
 - La tarjeta **solo identifica** al jugador: el saldo vive siempre en el servidor.
 - Con la Pico conectada, un jugador con **tarjeta física** debe pagar con el lector: su botón "Pagar con tarjeta" se deshabilita (y el servidor rechaza el pago simulado). Si la Pico se desconecta, vuelve a poder usar el botón.
 
 En el código: `Monopoly.Core.Hardware` (`IDispositivoCajero`, `CajeroPico` sobre `SerialPort`, `CajeroSimulado`, `CajeroPorLineas`, `ProtocoloCajero`) y `Servidor.UsarCajero(...)`.
 
-## 9. Solución de problemas
+## 8. Solución de problemas
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
@@ -217,13 +180,9 @@ En el código: `Monopoly.Core.Hardware` (`IDispositivoCajero`, `CajeroPico` sobr
 | Thonny no ve la Pico o dice "puerto ocupado" | Otro programa (el juego u otra ventana de Thonny) usa el puerto | Cerrar el otro programa; desconectar y conectar la Pico |
 | `ValueError: invalid pin` o no encuentra "LED" | Se instaló el firmware de la Pico sin W | Instalar el `.uf2` de **RPI_PICO_W** |
 | `ImportError: no module named 'mfrc522'` | Falta `mfrc522.py` en la Pico o tiene otro nombre | Guardarlo en la Pico con ese nombre exacto |
-| Los displays muestran todo al revés (encendido lo apagado) | `CATODO_COMUN` no coincide con los displays | Cambiar la constante y volver a guardar `main.py` |
-| Un display no enciende nada | Pin común mal conectado (GND vs 3V3) o display de otro tipo | Revisar el común y el tipo |
-| Números "raros" (por ejemplo, el 2 se ve como otra cosa) | Segmentos cruzados | Comparar cada segmento con la tabla 2.2; con `DADOS:8,8` deben encender todos |
-| Segmentos muy tenues | Displays azules, blancos o verdes (necesitan más de 3,3 V) | Usar displays rojos |
-| `ERROR:RC522 no responde...` | Cable SPI suelto, RST sin conectar o sin 3,3 V | Revisar la tabla 2.1; `prueba_uid.py` muestra `VersionReg` (0x91/0x92 en chips originales; algunos clones dan 0x12, 0x88 o 0xB2; 0x00 o 0xFF indican un problema de cableado) |
-| No lee las tarjetas | Tarjeta de otra frecuencia (125 kHz) o demasiado lejos | Usar tarjetas MIFARE de 13,56 MHz; apoyarlas sobre la antena |
+| No lee las tarjetas | Cable SPI suelto, RST sin conectar, sin 3,3 V, o tarjeta de 125 kHz | Revisar la tabla 2.1; `prueba_uid.py` muestra `VersionReg` (0x91/0x92 en chips originales; algunos clones dan 0x12, 0x88 o 0xB2; 0x00 o 0xFF indican un problema de cableado); usar tarjetas MIFARE de 13,56 MHz |
 | `BOTON` aparece solo o varias veces | El pulsador está conectado "siempre cerrado" (patas del mismo lado) | Usar dos patas en diagonal |
+| El LED de pago no enciende con `PAGO_OK` | LED al revés o sin resistencia/GND | La pata larga (ánodo) va hacia GP14 a través de la resistencia; la corta, a GND |
 | El juego no recibe nada | Thonny sigue abierto, o `main.py` no se guardó en la Pico | Cerrar Thonny; comprobar que `main.py` está en la Pico y reconectarla |
 | "No se pudo abrir COMx: está en uso por otro programa" | Thonny (u otra ventana del juego) tiene el puerto | Cerrar Thonny y pulsar Conectar |
 | "COMx no respondió a PING" | La Pico está en la consola de MicroPython (`>>>`) sin ejecutar `main.py`, o ese puerto es otro dispositivo | Desconectar y conectar la Pico (ejecuta `main.py` al arrancar) o usar Detectar |

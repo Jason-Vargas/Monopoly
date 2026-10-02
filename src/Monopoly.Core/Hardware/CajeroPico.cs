@@ -254,9 +254,21 @@ public sealed class CajeroPico : CajeroPorLineas
                     }
                 }
             }
-            catch (Exception ex) when (ex is IOException || ex is InvalidOperationException || ex is UnauthorizedAccessException || ex is ObjectDisposedException)
+            catch (Exception ex) when (ex is IOException || ex is InvalidOperationException || ex is UnauthorizedAccessException
+                                       || ex is ObjectDisposedException || ex is OperationCanceledException)
             {
-                // Cable desconectado o puerto cerrado.
+                // Cable desconectado o puerto cerrado (al cerrarlo, la lectura pendiente se cancela).
+                if (!_detener)
+                {
+                    PerderConexion();
+                }
+
+                return;
+            }
+            catch (Exception)
+            {
+                // Cualquier otro error del controlador serie: una excepción en este hilo cerraría todo
+                // el programa, así que se trata como una desconexión.
                 if (!_detener)
                 {
                     PerderConexion();

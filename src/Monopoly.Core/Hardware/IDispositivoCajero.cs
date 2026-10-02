@@ -3,7 +3,7 @@ using System;
 namespace Monopoly.Core.Hardware;
 
 /// <summary>
-/// Módulo electrónico (cajero): botón del dado, lector de tarjetas y displays de los dados.
+/// Módulo electrónico (cajero): botón del dado, lector de tarjetas y LED de pago.
 /// El servidor funciona igual con cualquier implementación: la Pico W real (<see cref="CajeroPico"/>)
 /// o el modo simulado (<see cref="CajeroSimulado"/>), en el que se juega con los botones de la interfaz.
 /// </summary>
@@ -50,14 +50,22 @@ public interface IDispositivoCajero : IDisposable
     EstadoCajero Estado { get; }
 
     /// <summary>
-    /// Muestra en los displays una tirada calculada por el servidor.
+    /// Informa al dispositivo una tirada calculada por el servidor (la Pico confirma la recepción
+    /// con un destello de su LED integrado).
     /// </summary>
     /// <param name="dado1">Primer dado (1 a 6).</param>
     /// <param name="dado2">Segundo dado (1 a 6).</param>
     void MostrarDados(int dado1, int dado2);
 
     /// <summary>
-    /// Apaga los displays.
+    /// Indica el resultado de un pago hecho con una tarjeta en el lector: aceptado (LED de pago
+    /// encendido 2 s) o rechazado (3 parpadeos rápidos).
     /// </summary>
-    void LimpiarDisplays();
+    /// <param name="aceptado"><c>true</c> si el pago se realizó.</param>
+    void IndicarPago(bool aceptado);
+
+    /// <summary>
+    /// Apaga los indicadores del dispositivo (el LED de pago).
+    /// </summary>
+    void Limpiar();
 }
