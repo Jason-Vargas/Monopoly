@@ -499,3 +499,6 @@ partidas/
 
 # Ejecutable publicado (publicar.ps1)
 publicar/
+
+# Ajustes personales de Claude Code (los del proyecto van en .claude/settings.json)
+.claude/settings.local.json

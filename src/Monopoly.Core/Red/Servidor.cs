@@ -495,20 +495,6 @@ public sealed class Servidor : IDisposable
         }
     }
 
-    /// <summary>
-    /// Indica si hay un cajero físico conectado.
-    /// </summary>
-    public bool CajeroFisicoConectado
-    {
-        get
-        {
-            lock (_candadoProcesamiento)
-            {
-                return CajeroFisicoActivo;
-            }
-        }
-    }
-
     private bool CajeroFisicoActivo => _cajero.EsFisico && _cajero.Estado == EstadoCajero.Conectado;
 
     /// <summary>
@@ -537,7 +523,7 @@ public sealed class Servidor : IDisposable
     }
 
     /// <summary>
-    /// <c>PAGAR_CON_TARJETA</c>: solo en modo sin hardware (pruebas o cliente de consola), usa el UID del propio
+    /// <c>PAGAR_CON_TARJETA</c>: solo en modo sin hardware (pruebas), usa el UID del propio
     /// jugador y pasa por el mismo flujo que una tarjeta leída. En modo hardware se paga y se compra
     /// únicamente acercando la tarjeta al lector.
     /// </summary>

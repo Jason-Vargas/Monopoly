@@ -228,17 +228,9 @@ sequenceDiagram
     Note over S,J: Sin saldo suficiente: paga lo que tiene, queda eliminado (regla existente) y se envía PAGO_RECHAZADO
 ```
 
-## 8. Herramienta de depuración
+## 8. Pruebas sin hardware
 
-`src/Monopoly.ClienteConsola` (temporal) permite probar el protocolo sin interfaz gráfica:
-
-```bash
-dotnet build Monopoly.sln
-dotnet run --project src/Monopoly.ClienteConsola --no-build -- servidor 5000
-dotnet run --project src/Monopoly.ClienteConsola --no-build -- cliente 127.0.0.1 5000 Ana
-```
-
-El servidor de consola arranca en **modo sin hardware**. En el cliente: `i` iniciar, `t` tirar, `c` comprar (luego `p`), `n` no comprar, `p` pasar la tarjeta (pago o compra), `f` terminar turno, `e` estado, `h [todas|antiguas|recientes|jugador X|tipo T]` historial, `x` exportar, `q` salir. Cualquier otra línea se envía tal cual (por ejemplo `CONSULTAR_TRANSACCIONES|TIPO|PagoAlquiler`).
+Para probar el protocolo sin la Pico W, el organizador marca **Opciones → Modo sin hardware (pruebas)**: el servidor acepta `TIRAR_DADOS` y `PAGAR_CON_TARJETA` por red, y las opciones "Simular botón" y "Simular tarjeta del jugador en turno" recorren el mismo flujo que el cajero físico. Las pruebas de integración (`tests/Monopoly.Tests/Red` y `tests/Monopoly.Tests/Hardware`) ejercitan todos los mensajes con un servidor real en loopback.
 
 ## 9. Cajero físico (Pico W)
 

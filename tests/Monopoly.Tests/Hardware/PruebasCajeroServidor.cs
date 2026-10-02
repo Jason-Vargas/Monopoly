@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Net;
 using Monopoly.Core.Estructuras;
-using Monopoly.Core.Hardware;
 using Monopoly.Core.Logica;
 using Monopoly.Core.Modelo;
 using Monopoly.Core.Red;

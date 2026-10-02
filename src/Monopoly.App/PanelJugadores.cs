@@ -39,11 +39,6 @@ internal sealed class PanelJugadores : Control
     }
 
     /// <summary>
-    /// Alto necesario para mostrar cuatro jugadores.
-    /// </summary>
-    public static int AltoPreferido => (Juego.MaximoJugadores * (AltoTarjeta + Separacion)) + Separacion;
-
-    /// <summary>
     /// Muestra el estado recibido.
     /// </summary>
     /// <param name="estado">Estado de la partida.</param>

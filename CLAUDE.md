@@ -46,6 +46,8 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
 - El cliente nunca modifica el estado: toda acción se envía al servidor (banco), que valida y responde.
 - Cada estructura de datos nueva lleva sus pruebas unitarias en Monopoly.Tests.
 - Compilar con `dotnet build` y probar con `dotnet test` antes de cada commit.
+- **Commits sin coautoría**: el autor es solo la cuenta de `git config`; nada de `Co-Authored-By` ni "Generated with Claude Code" (desactivado con `attribution` en `.claude/settings.json`).
+- Estructura de carpetas: ver el árbol en `README.md` (mantenerlo al día si se agregan carpetas).
 - **Polimorfismo real**: la lógica, la red y la interfaz NO usan `is`, `as`, casts ni `switch` sobre el tipo de casilla. Lo que dependa del tipo se resuelve con miembros virtuales (`AlCaer`, `Categoria`, `CalcularAlquiler`). En las pruebas sí se permiten casts para inspeccionar el tablero.
 
 ## Diseño del modelo (`Monopoly.Core.Modelo`)
@@ -84,14 +86,13 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
 - `ESTADO` se serializa con `SerializadorEstado` (21 campos fijos + 11 por jugador; el último es la forma de la ficha) sobre `EstadoRed` (instantánea + dueños + casillas recorridas). `TRANSACCIONES` con `SerializadorTransacciones` (8 campos por transacción).
 - `Cliente`: `TcpClient` + hilo lector; notifica con eventos C# (`BienvenidaRecibida`, `ErrorRecibido`, `EstadoActualizado`, `DadosRecibidos`, `EventoRecibido`, `TransaccionesRecibidas`, `FinRecibido`, `Desconectado`, `MensajeRecibido`). **Se disparan en el hilo lector**: la interfaz debe usar `BeginInvoke`.
 - `TIRAR_DADOS` y `PAGAR_CON_TARJETA` solo se aceptan en **modo sin hardware (pruebas)**; en modo hardware los dados salen del botón físico y compras/pagos de la tarjeta RFID. `ESTADO` tiene 21 campos fijos (19 = cajero conectado, 20 = modo sin hardware).
-- `src/Monopoly.ClienteConsola` es una herramienta **temporal** de depuración (`servidor [puerto]` / `cliente [host] [puerto] [nombre]`).
 - Robustez (ver `docs/protocolo.md` §5 y `docs/prueba-en-red.md`): `ConfiguracionSocket` aplica keepalive TCP (~20 s para detectar redes caídas) y tiempo máximo de envío de 5 s; `ConexionCliente.LeerLinea` limita las líneas a 8192 caracteres; los errores inesperados al procesar responden `ERROR` sin cortar la conexión.
 - `ESTADO` incluye (campo 18) los jugadores **desconectados**; `RETIRAR_JUGADOR|id` (solo el organizador, solo desconectados) llama a `Juego.RetirarJugador`; `Servidor.Detener(motivo)` envía `SERVIDOR_CERRADO|motivo` antes de cerrar y el cliente lo usa como motivo de `Desconectado` (`Cliente.CerradoPorElServidor`).
 - `Cliente.Conectar` espera como máximo 5 s y `Cliente.DescribirErrorConexion` traduce los errores (rechazada, sin respuesta, IP inválida) a mensajes claros.
 
 ## Módulo electrónico (`hardware/`, Raspberry Pi Pico W + MicroPython)
 
-- Archivos: `hardware/pico/main.py` (firmware), `hardware/pico/mfrc522.py` (driver **original que funciona en la placa**, sin cambios; API `MFRC522(spi, gpioRst=20, gpioCs=17)`, `request(REQIDL)`, `anticoll()` → 5 bytes = 4 de UID + checksum), `hardware/pico/prueba_uid.py` (anotar UIDs), `hardware/pico_original/` (copia de lo que había en la Pico), `hardware/README.md` (materiales, conexiones, instalación, pruebas, problemas). La prohibición de colecciones aplica al C#; el MicroPython es independiente.
+- Archivos: `hardware/pico/main.py` (firmware), `hardware/pico/mfrc522.py` (driver **original que funciona en la placa**, sin cambios; API `MFRC522(spi, gpioRst=20, gpioCs=17)`, `request(REQIDL)`, `anticoll()` → 5 bytes = 4 de UID + checksum), `hardware/pico/prueba_uid.py` (anotar UIDs), `hardware/README.md` (materiales, conexiones, instalación, pruebas, problemas). La prohibición de colecciones aplica al C#; el MicroPython es independiente.
 - **Pines en uso** (reemplazan cualquier asignación anterior):
   - RC522 por SPI0: SCK = GP18, MOSI = GP19, MISO = GP16, CS = GP17, RST = GP20; alimentación 3V3(OUT).
   - Botón: GP15 a GND, con pull-up interno (`Pin(15, Pin.IN, Pin.PULL_UP)`), flanco de bajada y antirrebote de 50 ms.
@@ -113,7 +114,7 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
   - Toda tirada aceptada → `cajero.MostrarDados(d1, d2)` + `DADOS` a todos.
   - `RFID:uid` (normalizado: mayúsculas sin espacios): vinculación pendiente → `Juego.VincularTarjeta`; fase `EsperandoTarjetaCompra` o `EsperandoPago` → `Juego.IdentificarTarjeta` + `cajero.IndicarPago(PagoAceptado == true)` (`PAGO_OK` compra/pago correcto; `PAGO_RECHAZADO` tarjeta ajena, no registrada, saldo insuficiente para comprar o eliminación por no poder pagar); si no → `Juego.ConsultarTarjeta` (dueño y saldo, sin LED).
   - Sin cajero conectado y sin modo de pruebas la partida queda **en pausa** (`EstadoRed.EnPausaPorCajero`); al reconectar sigue donde estaba.
-  - **Modo sin hardware (pruebas)**: `Servidor.EstablecerModoSinHardware(true)` cambia a un `CajeroSimulado`; `SimularBoton()` y `SimularTarjetaDelJugadorEnTurno()` recorren el mismo flujo; no se envía nada a la Pico. El servidor de consola arranca en este modo.
+  - **Modo sin hardware (pruebas)**: `Servidor.EstablecerModoSinHardware(true)` cambia a un `CajeroSimulado`; `SimularBoton()` y `SimularTarjetaDelJugadorEnTurno()` recorren el mismo flujo; no se envía nada a la Pico.
   - Cambios de estado del cajero → `EVENTO|Cajero: ...` + `ESTADO`.
 - Protocolo TCP: `VINCULAR_TARJETA|idJugador` (solo el organizador y con cajero físico; `0` cancela). Los avisos del cajero son `EVENTO` con el prefijo `Cajero: `.
 - Interfaz del organizador: todo lo de la Pico está en `FormularioOpciones` (engranaje, en la sala y en el juego): estado, puerto COM, ↻, "Detectar automáticamente", "Conectar", "Desconectar", "Probar LED" (envía `PAGO_OK`), monitor de líneas (`MonitorCajero`: BOTON, RFID, errores y conexión; vive en `SesionJuego.MonitorCajero` y avisa con `PicoPerdida` si la Pico se pierde sin pedirlo), tarjetas vinculadas y la casilla "Modo sin hardware (pruebas)" con "Simular botón" / "Simular tarjeta del jugador en turno". `SesionJuego.CambiarCajero`/`EstablecerModoSinHardware`; `SesionJuego.CajeroCambiado` avisa en el hilo de la interfaz. En la sala: "Vincular tarjeta" / "Cancelar vinculación" e "Iniciar" bloqueado hasta que todos tengan tarjeta (modo hardware). En el juego no hay botones de tirar ni de pagar: el aviso para todos ("Turno de X: presione el botón físico...", "X quiere comprar P por ₡N: acerque su tarjeta al lector", "X debe pagar ₡N a Y: acerque su tarjeta al lector") se ve en el panel y en el centro del tablero (`PanelTablero.Aviso`).
@@ -212,7 +213,5 @@ Marcar con `[x]` al completar cada punto en su etapa.
 dotnet build Monopoly.sln
 dotnet test Monopoly.sln
 dotnet run --project src/Monopoly.App
-# Depuración del protocolo (compilar antes; --no-build permite varias instancias a la vez):
-dotnet run --project src/Monopoly.ClienteConsola --no-build -- servidor 5000
-dotnet run --project src/Monopoly.ClienteConsola --no-build -- cliente 127.0.0.1 5000 Ana
+# Varias ventanas de prueba (compilar antes): Monopoly.App.exe --crear Ana 5000 100 / --unirse Beto 127.0.0.1 5000
 ```

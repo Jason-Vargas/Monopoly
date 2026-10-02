@@ -15,17 +15,11 @@ internal static class Paleta
     /// <summary>Color de la mesa alrededor del tablero.</summary>
     public static readonly Color Mesa = Color.FromArgb(34, 76, 52);
 
-    /// <summary>Color de las líneas del tablero.</summary>
-    public static readonly Color Linea = Color.FromArgb(25, 25, 25);
-
     /// <summary>Rojo oscuro de los títulos.</summary>
     public static readonly Color RojoTitulo = Color.FromArgb(180, 20, 30);
 
     /// <summary>Resaltado del jugador en turno y de la propiedad en venta.</summary>
     public static readonly Color Resaltado = Color.FromArgb(255, 196, 0);
-
-    /// <summary>Fondo de los paneles laterales.</summary>
-    public static readonly Color FondoPanel = Color.FromArgb(244, 241, 230);
 
     /// <summary>Nombre de la fuente de la interfaz.</summary>
     public const string Fuente = "Segoe UI";

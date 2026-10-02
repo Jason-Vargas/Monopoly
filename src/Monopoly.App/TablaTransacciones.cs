@@ -4,7 +4,6 @@ using System.Globalization;
 using System.Windows.Forms;
 using Monopoly.App.Estilo;
 using Monopoly.Core.Estructuras;
-using Monopoly.Core.Logica;
 using Monopoly.Core.Modelo;
 
 namespace Monopoly.App;

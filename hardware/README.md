@@ -5,11 +5,10 @@ El módulo tiene un **lector de tarjetas RFID** (RC522), un **botón** (pide la 
 ```
 hardware/
 ├── README.md            este documento
-├── pico/                archivos para copiar a la Pico W
-│   ├── main.py          programa principal (se ejecuta al encender la Pico)
-│   ├── mfrc522.py       driver del RC522 (el original que funciona en la placa, sin cambios)
-│   └── prueba_uid.py    utilidad para ver y anotar el UID de cada tarjeta (no se copia a la Pico)
-└── pico_original/       copia de los archivos que había en la Pico antes de esta versión
+└── pico/                archivos para copiar a la Pico W
+    ├── main.py          programa principal (se ejecuta al encender la Pico)
+    ├── mfrc522.py       driver del RC522 (el original que funciona en la placa, sin cambios)
+    └── prueba_uid.py    utilidad para ver y anotar el UID de cada tarjeta (no se copia a la Pico)
 ```
 
 ## 1. Materiales
