@@ -162,6 +162,59 @@ internal sealed class SesionJuego : IDisposable
     }
 
     /// <summary>
+    /// Indica si el servidor alojado está en modo sin hardware (pruebas).
+    /// </summary>
+    public bool ModoSinHardware => Servidor?.ModoSinHardware ?? false;
+
+    /// <summary>
+    /// Activa o desactiva el modo sin hardware en el servidor alojado. Al activarlo se libera la Pico (si
+    /// estaba conectada) y el servidor usa su propio cajero simulado.
+    /// </summary>
+    /// <param name="activo">Si se activa el modo sin hardware.</param>
+    public void EstablecerModoSinHardware(bool activo)
+    {
+        if (Servidor == null)
+        {
+            throw new InvalidOperationException("Solo el organizador puede cambiar el modo.");
+        }
+
+        Servidor.EstablecerModoSinHardware(activo);
+        if (activo && !ReferenceEquals(_cajero, Servidor.Cajero))
+        {
+            IDispositivoCajero anterior = _cajero;
+            anterior.EstadoCambiado -= AlCambiarEstadoCajero;
+            _cajero = Servidor.Cajero;
+            anterior.Dispose();
+        }
+
+        CajeroCambiado?.Invoke();
+    }
+
+    /// <summary>
+    /// Modo sin hardware: simula el botón del dado (mismo flujo que la Pico).
+    /// </summary>
+    public void SimularBoton()
+    {
+        MostrarRechazo(Servidor?.SimularBoton());
+    }
+
+    /// <summary>
+    /// Modo sin hardware: simula la tarjeta del jugador en turno (mismo flujo que la Pico).
+    /// </summary>
+    public void SimularTarjetaDelJugadorEnTurno()
+    {
+        MostrarRechazo(Servidor?.SimularTarjetaDelJugadorEnTurno());
+    }
+
+    private void MostrarRechazo(Core.Logica.ResultadoAccion? resultado)
+    {
+        if (resultado != null && !resultado.Exito)
+        {
+            ErrorRecibido?.Invoke(resultado.Mensaje);
+        }
+    }
+
+    /// <summary>
     /// Recorre los eventos recibidos desde el inicio de la sesión.
     /// </summary>
     /// <param name="accion">Acción a ejecutar con cada texto.</param>

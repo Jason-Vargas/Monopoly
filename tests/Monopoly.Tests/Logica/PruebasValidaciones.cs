@@ -1,5 +1,6 @@
 using System.Threading;
 using Monopoly.Core.Logica;
+using Monopoly.Core.Modelo;
 using Xunit;
 
 namespace Monopoly.Tests.Logica;
@@ -15,7 +16,7 @@ public class PruebasValidaciones : PartidaDePrueba
         Crear(2, new[] { 1, 2 }, iniciar: false);
 
         Rechazada(Juego.TirarDados(Ana), "aún no ha comenzado");
-        Rechazada(Juego.ComprarPropiedad(Ana), "aún no ha comenzado");
+        Rechazada(Juego.SolicitarCompra(Ana), "aún no ha comenzado");
         Rechazada(Juego.TerminarTurno(Ana), "aún no ha comenzado");
         Rechazada(Juego.IdentificarTarjeta(Uid(Ana)), "no está en curso");
         Assert.Equal(EstadoPartida.EsperandoJugadores, Juego.Estado);
@@ -59,7 +60,7 @@ public class PruebasValidaciones : PartidaDePrueba
         Crear(3, new[] { 1, 2 });
 
         Rechazada(Juego.TirarDados(Beto), "No es el turno de Beto; le toca a Ana");
-        Rechazada(Juego.ComprarPropiedad(Carla), "No es el turno de Carla");
+        Rechazada(Juego.SolicitarCompra(Carla), "No es el turno de Carla");
         Rechazada(Juego.NoComprar(Beto), "No es el turno");
         Rechazada(Juego.TerminarTurno(Beto), "No es el turno");
         Rechazada(Juego.TirarDados(9), "No existe el jugador 9");
@@ -107,12 +108,64 @@ public class PruebasValidaciones : PartidaDePrueba
         Crear(2, new[] { 5, 6 }, saldo: 100);
         Ok(Juego.TirarDados(Ana));
 
-        Rechazada(Juego.ComprarPropiedad(Ana), "Saldo insuficiente: Plaza San Carlos cuesta $140 y Ana tiene $100");
+        // "Comprar" no cobra: la validación del saldo se hace al acercar la tarjeta.
+        Ok(Juego.SolicitarCompra(Ana));
+        Assert.Equal(FaseTurno.EsperandoTarjetaCompra, Estado().Fase);
 
+        ResultadoAccion compra = Juego.IdentificarTarjeta(Uid(Ana));
+
+        Rechazada(compra, "saldo insuficiente: Plaza San Carlos cuesta ₡140 y Ana tiene ₡100");
+        Assert.False(compra.PagoAceptado);
         Assert.Equal(100, Saldo(Ana));
+        Assert.True(Juego.Tablero.BuscarPropiedad(11)!.EstaDisponible);
         Assert.Equal(0, Juego.Historial.Cantidad);
         Assert.Equal(FaseTurno.EsperandoDecisionCompra, Estado().Fase);
         Ok(Juego.NoComprar(Ana));
+    }
+
+    [Fact]
+    public void Comprar_NoCobraHastaLaTarjetaYSePuedeCancelar()
+    {
+        Crear(2, new[] { 1, 2 });
+        Ok(Juego.TirarDados(Ana));
+
+        Ok(Juego.SolicitarCompra(Ana));
+
+        Assert.Equal(1500, Saldo(Ana));
+        Assert.Equal(0, Juego.Historial.Cantidad);
+        Assert.Contains("Ana quiere comprar Avenida Báltica por ₡60: acerque su tarjeta al lector.", Eventos());
+        Rechazada(Juego.SolicitarCompra(Ana), "Ya se está esperando la tarjeta de Ana");
+        Rechazada(Juego.TerminarTurno(Ana), "Se espera su tarjeta para comprar Avenida Báltica");
+
+        Ok(Juego.NoComprar(Ana));
+
+        Assert.Equal(FaseTurno.PuedeTerminar, Estado().Fase);
+        Assert.True(Juego.Tablero.BuscarPropiedad(3)!.EstaDisponible);
+        Assert.Equal(1500, Saldo(Ana));
+        Assert.Contains("Ana canceló la compra de Avenida Báltica.", Eventos());
+        Rechazada(Juego.IdentificarTarjeta(Uid(Ana)), "no hay ningún pago ni compra pendiente");
+    }
+
+    [Fact]
+    public void Comprar_ConLaTarjetaDeOtroJugador_SeRechazaSinCambios()
+    {
+        Crear(2, new[] { 1, 2 });
+        Ok(Juego.TirarDados(Ana));
+        Ok(Juego.SolicitarCompra(Ana));
+
+        ResultadoAccion otra = Juego.IdentificarTarjeta(Uid(Beto));
+
+        Rechazada(otra, "La tarjeta pertenece a Beto; se espera la tarjeta de Ana para comprar Avenida Báltica");
+        Assert.False(otra.PagoAceptado);
+        Assert.Equal(FaseTurno.EsperandoTarjetaCompra, Estado().Fase);
+        Assert.Equal((1500, 1500), (Saldo(Ana), Saldo(Beto)));
+        Rechazada(Juego.IdentificarTarjeta("FFFFFFFF"), "no está registrada");
+
+        ResultadoAccion propia = Ok(Juego.IdentificarTarjeta(Uid(Ana)));
+
+        Assert.True(propia.PagoAceptado);
+        Assert.Equal(1440, Saldo(Ana));
+        Assert.Equal(TipoTransaccion.CompraPropiedad, Juego.Historial.BuscarPorTipo(TipoTransaccion.CompraPropiedad).Obtener(0).Tipo);
     }
 
     [Fact]
@@ -120,11 +173,11 @@ public class PruebasValidaciones : PartidaDePrueba
     {
         Crear(2, new[] { 1, 2 });
         Ok(Juego.TirarDados(Ana));
-        Ok(Juego.ComprarPropiedad(Ana));
+        Comprar(Ana);
         Ok(Juego.TerminarTurno(Ana));
         Ok(Juego.TirarDados(Beto));
 
-        Rechazada(Juego.ComprarPropiedad(Beto), "Avenida Báltica ya tiene propietario (Ana)");
+        Rechazada(Juego.SolicitarCompra(Beto), "Avenida Báltica ya tiene propietario (Ana)");
 
         Assert.Same(J(Ana), Juego.Tablero.BuscarPropiedad(3)!.Propietario);
         Assert.Equal(1500, Saldo(Beto));
@@ -134,10 +187,10 @@ public class PruebasValidaciones : PartidaDePrueba
     public void ComprarAntesDeTirarOEnCasillaNoComprable_SeRechaza()
     {
         Crear(2, new[] { 2, 2 });
-        Rechazada(Juego.ComprarPropiedad(Ana), "Debe lanzar los dados");
+        Rechazada(Juego.SolicitarCompra(Ana), "Debe lanzar los dados");
         Ok(Juego.TirarDados(Ana));
 
-        Rechazada(Juego.ComprarPropiedad(Ana), "no es una propiedad");
+        Rechazada(Juego.SolicitarCompra(Ana), "no es una propiedad");
         Rechazada(Juego.NoComprar(Ana), "No hay ninguna compra pendiente");
     }
 
@@ -146,9 +199,9 @@ public class PruebasValidaciones : PartidaDePrueba
     {
         Crear(2, new[] { 1, 2 });
         Ok(Juego.TirarDados(Ana));
-        Ok(Juego.ComprarPropiedad(Ana));
+        Comprar(Ana);
 
-        Rechazada(Juego.ComprarPropiedad(Ana), "ya tiene propietario");
+        Rechazada(Juego.SolicitarCompra(Ana), "ya tiene propietario");
         Assert.Equal(1440, Saldo(Ana));
     }
 
@@ -157,7 +210,7 @@ public class PruebasValidaciones : PartidaDePrueba
     {
         Crear(2, new[] { 1, 2 });
 
-        Rechazada(Juego.IdentificarTarjeta(Uid(Ana)), "no hay ningún pago pendiente");
+        Rechazada(Juego.IdentificarTarjeta(Uid(Ana)), "no hay ningún pago ni compra pendiente");
     }
 
     [Fact]

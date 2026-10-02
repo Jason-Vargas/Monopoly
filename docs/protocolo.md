@@ -24,7 +24,7 @@ Comunicación por **sockets TCP** entre los clientes (jugadores) y el servidor (
 - El cliente **solo envía solicitudes**. Nunca envía saldos, posiciones, dados, turnos, propiedades ni transacciones.
 - El servidor **identifica al jugador por su conexión** (asociada en `CONECTAR`), no por un id enviado por el cliente.
 - Toda solicitud la valida `Juego`. Si se rechaza, solo el solicitante recibe `ERROR|motivo`.
-- Tras cada acción aceptada, el servidor **difunde a todos** los jugadores: los `EVENTO` nuevos, el `ESTADO` completo y, si la partida terminó, `FIN`. Tras `TIRAR_DADOS` además envía `DADOS` antes de los eventos.
+- Tras cada acción aceptada, el servidor **difunde a todos** los jugadores: los `EVENTO` nuevos, el `ESTADO` completo y, si la partida terminó, `FIN`. Tras una tirada (botón físico o `TIRAR_DADOS` en modo sin hardware) además envía `DADOS` antes de los eventos.
 - Las solicitudes se procesan de a una, así que todos reciben los mensajes en el mismo orden.
 
 ## 3. Solicitudes del cliente (cliente → servidor)
@@ -32,11 +32,11 @@ Comunicación por **sockets TCP** entre los clientes (jugadores) y el servidor (
 | Mensaje | Campos | Si se acepta | Errores posibles |
 |---|---|---|---|
 | `CONECTAR\|nombre` | nombre del jugador | `BIENVENIDA` al solicitante; `EVENTO` + `ESTADO` a todos | partida ya iniciada, máximo 4 jugadores, nombre vacío/repetido/reservado (`BANCO`), jugador ya conectado, conexión ya asociada |
-| `INICIAR_PARTIDA` | — | `EVENTO` + `ESTADO` a todos | no es el organizador (primer jugador), menos de 2 jugadores, ya iniciada |
-| `TIRAR_DADOS` | — | `DADOS` + `EVENTO` + `ESTADO` a todos | fuera de turno, ya lanzó en este turno, eliminado, partida no en curso |
-| `COMPRAR_PROPIEDAD` | — | `EVENTO` + `ESTADO` a todos | fuera de turno, no lanzó, no es propiedad, ya tiene dueño, saldo insuficiente, sin compra pendiente |
-| `NO_COMPRAR` | — | `EVENTO` + `ESTADO` a todos | fuera de turno, sin compra pendiente |
-| `PAGAR_CON_TARJETA` | — | `EVENTO` + `ESTADO` a todos (y `FIN` si alguien queda como único jugador) | no hay pago pendiente, la tarjeta no es del deudor |
+| `INICIAR_PARTIDA` | — | `EVENTO` + `ESTADO` a todos | no es el organizador (primer jugador), menos de 2 jugadores, ya iniciada; en **modo hardware**, algún jugador sin tarjeta vinculada (`Todos los jugadores deben tener una tarjeta vinculada antes de iniciar. Faltan: X, Y.`) |
+| `TIRAR_DADOS` | — | **solo en modo sin hardware**: `DADOS` + `EVENTO` + `ESTADO` a todos | en modo hardware siempre `ERROR\|Los dados se lanzan con el botón físico del cajero.`; fuera de turno, ya lanzó en este turno, eliminado, partida no en curso |
+| `COMPRAR_PROPIEDAD` | — | **no cobra**: la fase pasa a `EsperandoTarjetaCompra`; `EVENTO\|X quiere comprar P por ₡N: acerque su tarjeta al lector.` + `ESTADO` a todos. La compra se ejecuta al leer la tarjeta del comprador (sección 9) | fuera de turno, no lanzó, no es propiedad, ya tiene dueño, sin compra pendiente, ya se está esperando la tarjeta |
+| `NO_COMPRAR` | — | `EVENTO` + `ESTADO` a todos; también **cancela** una compra que espera la tarjeta | fuera de turno, sin compra pendiente |
+| `PAGAR_CON_TARJETA` | — | **solo en modo sin hardware**: equivale a pasar la tarjeta del solicitante (paga el pago pendiente o completa la compra); `EVENTO` + `ESTADO` a todos (y `FIN` si alguien queda como único jugador) | en modo hardware siempre `ERROR\|Acerque su tarjeta al lector del cajero.`; no hay pago ni compra pendiente, la tarjeta no es del deudor/comprador, saldo insuficiente para comprar |
 | `TERMINAR_TURNO` | — | `EVENTO` + `ESTADO` a todos (y `FIN` si se llegó al máximo de turnos) | fuera de turno, no lanzó, decisión de compra pendiente, pago pendiente |
 | `CONSULTAR_ESTADO` | — | `ESTADO` solo al solicitante | — |
 | `CONSULTAR_TRANSACCIONES\|filtro[\|valor]` | filtro: `TODAS`, `ANTIGUAS`, `RECIENTES`, `JUGADOR\|nombre`, `TIPO\|tipo` | `TRANSACCIONES` solo al solicitante | filtro desconocido, falta el valor, tipo desconocido |
@@ -47,7 +47,7 @@ Comunicación por **sockets TCP** entre los clientes (jugadores) y el servidor (
 
 Antes de `CONECTAR`, cualquier otra solicitud recibe `ERROR|Debe enviar CONECTAR|nombre antes de cualquier otra solicitud.` Un comando desconocido recibe `ERROR|Comando desconocido: X.`
 
-`PAGAR_CON_TARJETA` es el **modo simulado** del lector RFID: el servidor usa el UID de la tarjeta del propio jugador (virtual, `VIRTUAL-{id}`, mientras no vincule una física). Con el lector real, el UID lo enviará el dispositivo.
+**Modo hardware** (por defecto): los dados se lanzan solo con el botón físico del cajero y las compras y pagos se hacen solo con la tarjeta RFID; `TIRAR_DADOS` y `PAGAR_CON_TARJETA` se rechazan. **Modo sin hardware (pruebas)**: lo activa el organizador en su ventana; el organizador simula el botón y la tarjeta del jugador en turno (mismo flujo que la Pico), y `TIRAR_DADOS`/`PAGAR_CON_TARJETA` se aceptan (este último usa la tarjeta del solicitante, virtual `VIRTUAL-{id}` si no tiene una física). En modo sin hardware no se envía nada a la Pico.
 
 Valores de `TIPO`: `CompraPropiedad`, `PagoAlquiler`, `PagoBanco`, `PagoEntreJugadores`, `GananciaEvento`, `PerdidaEvento`, `PremioInicio`.
 
@@ -58,7 +58,7 @@ Valores de `TIPO`: `CompraPropiedad`, `PagoAlquiler`, `PagoBanco`, `PagoEntreJug
 | `BIENVENIDA\|idJugador\|nombre` | id asignado (o recuperado al reconectarse) y nombre registrado | solicitante |
 | `ERROR\|mensaje` | motivo legible del rechazo | solicitante |
 | `ESTADO\|...` | estado completo (ver 4.1) | todos, o el solicitante en `CONSULTAR_ESTADO` |
-| `DADOS\|idJugador\|dado1\|dado2` | quién lanzó y los dos valores (1 a 6) | todos |
+| `DADOS\|idJugador\|dado1\|dado2` | quién lanzó y los dos valores (1 a 6), generados por el servidor | todos |
 | `EVENTO\|texto` | una línea del registro de la partida | todos |
 | `TRANSACCIONES\|filtro\|N\|...` | resultado de una consulta (ver 4.2) | solicitante |
 | `FIN\|ganador\|resumen` | nombre del ganador; patrimonio de cada jugador y ruta del TXT exportado | todos |
@@ -66,20 +66,20 @@ Valores de `TIPO`: `CompraPropiedad`, `PagoAlquiler`, `PagoBanco`, `PagoEntreJug
 
 ### 4.1 Campos de `ESTADO`
 
-Después de `ESTADO` vienen 20 campos fijos:
+Después de `ESTADO` vienen 21 campos fijos:
 
 | # | Campo | Ejemplo |
 |---|---|---|
 | 0 | estado de la partida (`EsperandoJugadores`, `EnCurso`, `Finalizada`) | `EnCurso` |
-| 1 | fase del turno (`EsperandoDados`, `EsperandoDecisionCompra`, `EsperandoPago`, `PuedeTerminar`) | `EsperandoPago` |
+| 1 | fase del turno (`EsperandoDados`, `EsperandoDecisionCompra`, `EsperandoTarjetaCompra`, `EsperandoPago`, `PuedeTerminar`) | `EsperandoPago` |
 | 2 | número de turno | `7` |
 | 3 | máximo de turnos | `100` |
 | 4 | id del jugador en turno (vacío si no hay partida en curso) | `2` |
 | 5 | id del ganador (vacío si no terminó) | |
-| 6 | casilla de la propiedad en venta (vacío si no hay) | |
+| 6 | casilla de la propiedad en venta o cuya compra espera la tarjeta (vacío si no hay) | |
 | 7 | id del deudor con pago pendiente (vacío si no hay) | `2` |
 | 8 | monto total del pago pendiente | `4` |
-| 9 | descripción del pago pendiente | `Beto debe pagar $4 a Ana` |
+| 9 | descripción del pago pendiente | `Beto debe pagar ₡4 a Ana` |
 | 10 | último dado 1 (vacío si nadie lanzó) | `1` |
 | 11 | último dado 2 | `2` |
 | 12 | id del jugador del último movimiento | `2` |
@@ -89,14 +89,15 @@ Después de `ESTADO` vienen 20 campos fijos:
 | 16 | cantidad de transacciones | `5` |
 | 17 | cantidad de jugadores N | `4` |
 | 18 | ids de los jugadores **desconectados** (sin conexión activa con el servidor) | `2` |
-| 19 | **cajero físico conectado** (Pico W en el organizador): `1`/`0` | `0` |
+| 19 | **cajero físico conectado** (Pico W en el organizador): `1`/`0` | `1` |
+| 20 | **modo sin hardware (pruebas)** activo: `1`/`0`. Si vale `0` y el campo 19 también, la partida está **en pausa** esperando el cajero | `0` |
 
 Luego **N bloques de 10 campos**, uno por jugador en orden de ingreso: `id`, `nombre`, `color` (`Rojo`, `Azul`, `Verde`, `Amarillo`), `saldo`, `posición` (0 a 39), `activo` (1/0), `turnos por perder`, `patrimonio`, `propiedades` (casillas separadas por coma), `tarjeta física` (1/0).
 
 Ejemplo (2 jugadores; Beto debe alquiler a Ana):
 
 ```
-ESTADO|EnCurso|EsperandoPago|2|100|2|||2|4|Beto debe pagar $4 a Ana|1|2|2|1,2,3|3:1|14|1|2||0|1|Ana|Rojo|1440|3|1|0|1500|3|0|2|Beto|Azul|1500|3|1|0|1500||0
+ESTADO|EnCurso|EsperandoPago|2|100|2|||2|4|Beto debe pagar ₡4 a Ana|1|2|2|1,2,3|3:1|14|1|2||1|0|1|Ana|Rojo|1440|3|1|0|1500|3|1|2|Beto|Azul|1500|3|1|0|1500||1
 ```
 
 ### 4.2 Campos de `TRANSACCIONES`
@@ -133,55 +134,96 @@ TRANSACCIONES|JUGADOR Ana|2|1|2026-09-29T15:30:00|1|CompraPropiedad|Ana|BANCO|60
 ← EVENTO|La partida comenzó con 4 jugadores (máximo 100 turnos).
 ← EVENTO|Turno 1: le toca a Ana.
 ← ESTADO|EnCurso|EsperandoDados|1|100|1|...
-→ TIRAR_DADOS              (desde Beto)
-← ERROR|No es el turno de Beto; le toca a Ana.
+→ TIRAR_DADOS              (desde Ana, en modo hardware)
+← ERROR|Los dados se lanzan con el botón físico del cajero.
+   (Ana presiona el botón físico del cajero)
+← DADOS|1|1|2
+← EVENTO|Ana lanzó los dados: 1 + 2 = 3.
+← ESTADO|EnCurso|EsperandoDecisionCompra|1|100|1||3|...
 ```
 
-## 7. Turno completo
+## 7. Diagramas de secuencia
+
+### 7.1 Tirada con el botón físico
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant B as Cliente de Beto
+    participant P as Pico W (cajero)
     participant S as Servidor (banco)
     participant J as Juego
-    participant O as Otros clientes (Ana, Carla, Dani)
+    participant C as Todos los clientes
 
-    Note over S,J: Turno 2: le toca a Beto (fase EsperandoDados)
-    B->>S: TIRAR_DADOS
-    S->>J: TirarDados(id de la conexión de Beto)
-    J->>J: valida turno y que no haya lanzado
-    J->>J: lanza 1 + 2, recorre los nodos 1 → 2 → 3
-    J->>J: Avenida Báltica es de Ana → pago pendiente ($4)
+    Note over C: "Turno de Beto: presione el botón físico para lanzar los dados"
+    P->>S: BOTON
+    S->>J: TirarDados(jugador en turno)
+    J->>J: valida partida en curso, turno y que no haya lanzado
+    J->>J: Dado genera 1 + 2, recorre los nodos 1 → 2 → 3
     J-->>S: Correcto (tirada, casillas recorridas)
-    S->>B: DADOS|2|1|2
-    S->>O: DADOS|2|1|2
-    S->>B: EVENTO|... (lanzó, se movió, debe pagar)
-    S->>O: EVENTO|...
-    S->>B: ESTADO|EnCurso|EsperandoPago|...
-    S->>O: ESTADO|EnCurso|EsperandoPago|...
+    S->>P: DADOS:1,2
+    S->>C: DADOS|2|1|2
+    S->>C: EVENTO|Beto lanzó los dados... + ESTADO
+    P->>S: BOTON (segunda pulsación en el mismo turno)
+    S->>J: TirarDados(jugador en turno)
+    J-->>S: Rechazado: ya lanzó
+    S->>C: EVENTO|Cajero: Se ignoró el botón: Beto ya lanzó los dados en este turno.
+```
 
-    B->>S: TERMINAR_TURNO
-    S->>J: TerminarTurno
-    J-->>S: Rechazado: pago pendiente
-    S->>B: ERROR|Tiene un pago pendiente: ...
+### 7.2 Compra con tarjeta
 
-    B->>S: PAGAR_CON_TARJETA
-    S->>J: IdentificarTarjeta(UID de Beto)
-    J->>J: valida deudor y saldo
-    J->>J: Banco.Transferir(Beto → Ana, $4) + transacción PagoAlquiler
-    J-->>S: Correcto
-    S->>B: EVENTO|Beto pagó $4 a Ana.
-    S->>O: EVENTO|Beto pagó $4 a Ana.
-    S->>B: ESTADO|EnCurso|PuedeTerminar|...
-    S->>O: ESTADO|EnCurso|PuedeTerminar|...
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as Cliente de Ana
+    participant S as Servidor (banco)
+    participant J as Juego
+    participant P as Pico W (cajero)
+    participant C as Todos los clientes
 
-    B->>S: TERMINAR_TURNO
-    S->>J: TerminarTurno
-    J->>J: rota la cola circular de turnos
-    J-->>S: Correcto (Turno 3: le toca a Carla)
-    S->>B: EVENTO + ESTADO
-    S->>O: EVENTO + ESTADO
+    Note over J: Ana cayó en Avenida Báltica (EsperandoDecisionCompra)
+    A->>S: COMPRAR_PROPIEDAD
+    S->>J: SolicitarCompra(Ana), todavía no cobra
+    J-->>S: Correcto, fase EsperandoTarjetaCompra
+    S->>C: EVENTO|Ana quiere comprar Avenida Báltica por ₡60: acerque su tarjeta al lector. + ESTADO
+    P->>S: RFID:BBBBBBBB (tarjeta de Beto)
+    S->>J: IdentificarTarjeta(UID)
+    J-->>S: Rechazado (PagoAceptado = no)
+    S->>P: PAGO_RECHAZADO
+    S->>C: EVENTO|Cajero: La tarjeta pertenece a Beto; se espera la tarjeta de Ana... + ESTADO
+    P->>S: RFID:AAAAAAAA (tarjeta de Ana)
+    S->>J: IdentificarTarjeta(UID)
+    J->>J: valida comprador, propiedad libre y saldo
+    J->>J: Banco.Cobrar(Ana, ₡60) + transacción CompraPropiedad
+    J-->>S: Correcto (PagoAceptado = sí)
+    S->>P: PAGO_OK
+    S->>C: EVENTO|Ana compró Avenida Báltica por ₡60. + ESTADO (PuedeTerminar)
+    Note over A,J: Sin saldo: PAGO_RECHAZADO, vuelve a EsperandoDecisionCompra y Ana puede pulsar "No comprar" (también mientras se espera la tarjeta)
+```
+
+### 7.3 Pago con tarjeta
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Servidor (banco)
+    participant J as Juego
+    participant P as Pico W (cajero)
+    participant C as Todos los clientes
+
+    Note over J: Beto cayó en Avenida Báltica (de Ana): pago pendiente, fase EsperandoPago
+    S->>C: EVENTO|Beto debe pagar ₡4 a Ana: acerque su tarjeta al lector. + ESTADO
+    P->>S: RFID:EEEEEEEE (no registrada)
+    S->>J: IdentificarTarjeta(UID)
+    J-->>S: Rechazado (PagoAceptado = no)
+    S->>P: PAGO_RECHAZADO
+    S->>C: EVENTO|Cajero: La tarjeta EEEEEEEE no está registrada... + ESTADO
+    P->>S: RFID:BBBBBBBB (tarjeta de Beto)
+    S->>J: IdentificarTarjeta(UID)
+    J->>J: Banco.Transferir(Beto → Ana, ₡4) + transacción PagoAlquiler
+    J-->>S: Correcto (PagoAceptado = sí)
+    S->>P: PAGO_OK
+    S->>C: EVENTO|Beto pagó ₡4 a Ana. + ESTADO (PuedeTerminar)
+    Note over S,J: Sin saldo suficiente: paga lo que tiene, queda eliminado (regla existente) y se envía PAGO_RECHAZADO
 ```
 
 ## 8. Herramienta de depuración
@@ -194,14 +236,16 @@ dotnet run --project src/Monopoly.ClienteConsola --no-build -- servidor 5000
 dotnet run --project src/Monopoly.ClienteConsola --no-build -- cliente 127.0.0.1 5000 Ana
 ```
 
-En el cliente: `i` iniciar, `t` tirar, `c` comprar, `n` no comprar, `p` pagar con tarjeta, `f` terminar turno, `e` estado, `h [todas|antiguas|recientes|jugador X|tipo T]` historial, `x` exportar, `q` salir. Cualquier otra línea se envía tal cual (por ejemplo `CONSULTAR_TRANSACCIONES|TIPO|PagoAlquiler`).
+El servidor de consola arranca en **modo sin hardware**. En el cliente: `i` iniciar, `t` tirar, `c` comprar (luego `p`), `n` no comprar, `p` pasar la tarjeta (pago o compra), `f` terminar turno, `e` estado, `h [todas|antiguas|recientes|jugador X|tipo T]` historial, `x` exportar, `q` salir. Cualquier otra línea se envía tal cual (por ejemplo `CONSULTAR_TRANSACCIONES|TIPO|PagoAlquiler`).
 
 ## 9. Cajero físico (Pico W)
 
 El cajero se conecta por USB a la computadora del organizador y **no habla este protocolo**: tiene su propio protocolo serie (ver `hardware/README.md`). El servidor traduce lo que ocurre en el cajero:
 
-- Botón del dado → misma lógica que `TIRAR_DADOS` para el jugador en turno (`DADOS` + `EVENTO` + `ESTADO` a todos); si se rechaza, `EVENTO|Cajero: Botón del dado: <motivo>`.
-- Tarjeta leída con un pago pendiente → pago del deudor (`EVENTO` + `ESTADO`), o `EVENTO|Cajero: La tarjeta pertenece a X; se espera la tarjeta de Y.`
-- Tarjeta leída sin pago pendiente → `EVENTO|Cajero: Tarjeta de X: saldo $N.` (no modifica nada).
-- Conexión o desconexión del cajero → `EVENTO|Cajero: ...` + `ESTADO` con el campo 19 actualizado.
-- Con el cajero conectado, `PAGAR_CON_TARJETA` de un jugador con tarjeta física se responde `ERROR|Usted tiene una tarjeta física: pásela por el lector del cajero para pagar.`
+- `BOTON` → tirada del **jugador en turno** con todas las validaciones (`DADOS` + `EVENTO` + `ESTADO` a todos y `DADOS:d1,d2` a la Pico). Una pulsación fuera de momento (partida no iniciada, ya lanzó, otra fase) se ignora sin errores: `EVENTO|Cajero: Se ignoró el botón: <motivo>`.
+- Tarjeta leída en `EsperandoTarjetaCompra` → solo la del comprador ejecuta la compra (`PAGO_OK`); la de otro jugador, una no registrada o saldo insuficiente → `PAGO_RECHAZADO` + `EVENTO|Cajero: <motivo>`.
+- Tarjeta leída en `EsperandoPago` → solo la del deudor paga (`PAGO_OK`; si el saldo no alcanza se aplica la eliminación y se envía `PAGO_RECHAZADO`); la de otro jugador o una no registrada → `PAGO_RECHAZADO` + `EVENTO|Cajero: <motivo>`.
+- Tarjeta leída sin pago ni compra pendiente → `EVENTO|Cajero: Tarjeta de X: saldo ₡N.` (no modifica nada ni enciende el LED).
+- Los ingresos (premio de Salida, cartas a favor) son automáticos: no requieren tarjeta.
+- Conexión o desconexión del cajero → `EVENTO|Cajero: ...` + `ESTADO` con el campo 19 actualizado. Sin cajero (y sin modo de pruebas) la partida queda **en pausa**: nadie puede tirar ni pagar hasta reconectarlo, y la partida no se pierde.
+- Los UID se normalizan (mayúsculas, sin espacios) y no se puede vincular la misma tarjeta a dos jugadores.

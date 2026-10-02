@@ -32,6 +32,7 @@ internal sealed class PanelTablero : Control
     private int[] _ruta = new int[0];
     private int _paso;
     private int _casillaBajoCursor = -1;
+    private string _aviso = string.Empty;
 
     /// <summary>
     /// Crea el panel con doble búfer para evitar el parpadeo.
@@ -48,6 +49,23 @@ internal sealed class PanelTablero : Control
     /// Indica si hay una ficha moviéndose.
     /// </summary>
     public bool Animando => _temporizador.Enabled;
+
+    /// <summary>
+    /// Aviso destacado en el centro del tablero (por ejemplo, "presione el botón físico para lanzar los dados").
+    /// </summary>
+    public string Aviso
+    {
+        get => _aviso;
+        set
+        {
+            string nuevo = value ?? string.Empty;
+            if (nuevo != _aviso)
+            {
+                _aviso = nuevo;
+                Invalidate();
+            }
+        }
+    }
 
     /// <summary>
     /// Muestra un nuevo estado. Si <paramref name="animar"/> es verdadero y el estado trae casillas
@@ -372,6 +390,23 @@ internal sealed class PanelTablero : Control
             using SolidBrush pincel = new SolidBrush(ColorDeJugador(enTurno));
             g.DrawString($"Turno {_estado.Instantanea.NumeroTurno}: le toca a {NombreDeJugador(enTurno)}", fuenteDados, pincel,
                 new RectangleF(centro.X, yDados + ladoDado + (u * 0.65f), centro.Width, u * 0.5f), centrado);
+        }
+
+        if (_aviso.Length > 0)
+        {
+            // Lo que se espera ahora (botón físico, tarjeta en el lector...), en un recuadro visible para todos.
+            RectangleF recuadro = new RectangleF(centro.X + (u * 0.5f), yDados + ladoDado + (u * 1.2f), centro.Width - u, u * 1.25f);
+            using (GraphicsPath forma = Redondeado(recuadro, u * 0.15f))
+            using (SolidBrush fondo = new SolidBrush(Color.FromArgb(235, 255, 248, 214)))
+            using (Pen borde = new Pen(Paleta.RojoTitulo, Math.Max(u * 0.04f, 1.5f)))
+            {
+                g.FillPath(fondo, forma);
+                g.DrawPath(borde, forma);
+            }
+
+            using Font fuenteAviso = new Font(Paleta.Fuente, Math.Max(u * 0.26f, 8f), FontStyle.Bold, GraphicsUnit.Pixel);
+            using SolidBrush rojo = new SolidBrush(Paleta.RojoTitulo);
+            g.DrawString(_aviso, fuenteAviso, rojo, RectangleF.Inflate(recuadro, -u * 0.12f, -u * 0.05f), centrado);
         }
     }
 

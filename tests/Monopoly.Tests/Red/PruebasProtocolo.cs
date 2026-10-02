@@ -32,7 +32,7 @@ public class PruebasProtocolo
     [InlineData("\\|\\n literal")]
     [InlineData("línea 1\nlínea 2\r\n")]
     [InlineData("")]
-    [InlineData("ñandú, Báltica, $1,500")]
+    [InlineData("ñandú, Báltica, ₡1,500")]
     public void CodificarYDecodificar_SonInversos(string texto)
     {
         Mensaje mensaje = Protocolo.Decodificar(Protocolo.Codificar("EVENTO", texto, "segundo"));
@@ -70,7 +70,7 @@ public class PruebasProtocolo
         EstadoJugador ana = new EstadoJugador(1, "Ana | la del sombrero", ColorFicha.Rojo, 1440, 3, true, 0, 1500, new[] { 3, 5 }, true);
         EstadoJugador beto = new EstadoJugador(2, "Beto", ColorFicha.Azul, 0, 10, false, 1, 0, new int[0], false);
         InstantaneaJuego instantanea = new InstantaneaJuego(EstadoPartida.EnCurso, FaseTurno.EsperandoPago, 7, 100, 1, null, null, 1,
-            "Ana debe pagar $200 al banco", 200, new TiradaDados(1, 2), new[] { ana, beto }, 42, 5);
+            "Ana debe pagar ₡200 al banco", 200, new TiradaDados(1, 2), new[] { ana, beto }, 42, 5);
         EstadoRed original = new EstadoRed(instantanea, 1, new[] { 1, 2, 3 }, new[] { 2 });
 
         string linea = SerializadorEstado.Codificar(original);
@@ -80,7 +80,7 @@ public class PruebasProtocolo
         Assert.Equal((EstadoPartida.EnCurso, FaseTurno.EsperandoPago, 7, 100, 1), (i.Estado, i.Fase, i.NumeroTurno, i.MaximoTurnos, i.IdJugadorEnTurno));
         Assert.Null(i.IdGanador);
         Assert.Null(i.IdPropiedadEnVenta);
-        Assert.Equal((1, 200, "Ana debe pagar $200 al banco"), (i.IdDeudor, i.MontoPagoPendiente, i.DescripcionPagoPendiente));
+        Assert.Equal((1, 200, "Ana debe pagar ₡200 al banco"), (i.IdDeudor, i.MontoPagoPendiente, i.DescripcionPagoPendiente));
         Assert.Equal(new TiradaDados(1, 2), i.UltimaTirada);
         Assert.Equal((42, 5), (i.CantidadEventos, i.CantidadTransacciones));
         Assert.Equal(new[] { 1, 2, 3 }, copia.CasillasRecorridas);
@@ -114,6 +114,22 @@ public class PruebasProtocolo
         Assert.Null(copia.IdJugadorUltimoMovimiento);
         Assert.Empty(copia.CasillasRecorridas);
         Assert.Empty(copia.Instantanea.Jugadores);
+    }
+
+    [Theory]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    public void Estado_CajeroYModoSinHardware_IdaYVuelta(bool cajeroConectado, bool modoSinHardware, bool enPausa)
+    {
+        InstantaneaJuego instantanea = new InstantaneaJuego(EstadoPartida.EnCurso, FaseTurno.EsperandoTarjetaCompra, 1, 100,
+            1, null, 3, null, null, 0, new TiradaDados(1, 2), new EstadoJugador[0], 3, 0);
+        EstadoRed original = new EstadoRed(instantanea, 1, new[] { 1, 2, 3 }, null, cajeroConectado, modoSinHardware);
+
+        EstadoRed copia = SerializadorEstado.Decodificar(Protocolo.Decodificar(SerializadorEstado.Codificar(original)));
+
+        Assert.Equal((cajeroConectado, modoSinHardware, enPausa), (copia.CajeroConectado, copia.ModoSinHardware, copia.EnPausaPorCajero));
+        Assert.Equal((FaseTurno.EsperandoTarjetaCompra, 3), (copia.Instantanea.Fase, copia.Instantanea.IdPropiedadEnVenta));
     }
 
     [Fact]

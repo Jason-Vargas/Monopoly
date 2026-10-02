@@ -146,9 +146,9 @@ La Pico se conecta a la computadora del **organizador**. Los demás jugadores no
 3. En la barra **Cajero (Pico W)** (arriba en la sala de espera y en la ventana de juego del organizador):
    - elija el puerto COM y pulse **Conectar**, o
    - pulse **Detectar**: el juego prueba cada puerto enviando `PING` y se conecta al que responde `PONG`.
-4. El indicador muestra `○ Sin cajero: modo simulado`, `● Pico W en COM5: …` (verde) o `● … desconectado: modo simulado` (naranja).
+4. El indicador muestra `● Pico W en COM5: …` (verde) o `● Pico W desconectada: partida en pausa hasta conectarla` (naranja).
 
-El puerto se abre a 115200 baudios, con `NewLine = "\n"` y **DTR y RTS activos** (sin DTR la Pico puede no enviar datos al PC). Un hilo aparte lee las líneas; las que no son del protocolo (por ejemplo, los mensajes de arranque de MicroPython) se ignoran. Cada 2 s se envía `PING`; si la Pico deja de responder durante ~7 s o se desconecta el cable, el juego **vuelve solo al modo simulado** sin cerrar la partida, y se puede pulsar **Conectar** de nuevo.
+El puerto se abre a 115200 baudios, con `NewLine = "\n"` y **DTR y RTS activos** (sin DTR la Pico puede no enviar datos al PC). Un hilo aparte lee las líneas; las que no son del protocolo (por ejemplo, los mensajes de arranque de MicroPython) se ignoran. Cada 2 s se envía `PING`; si la Pico deja de responder durante ~7 s o se desconecta el cable, el organizador ve una **alerta**, la partida queda **en pausa** (nadie puede tirar ni pagar) sin perderse, y se puede pulsar **Conectar** de nuevo para seguir donde estaba.
 
 En Windows, la Pico con MicroPython aparece como "Dispositivo serie USB (COMx)" (USB VID `2E8A`, PID `0005`).
 
@@ -156,19 +156,30 @@ En Windows, la Pico con MicroPython aparece como "Dispositivo serie USB (COMx)" 
 
 1. Con la Pico conectada, el organizador elige un jugador en la lista y pulsa **Vincular tarjeta**.
 2. Se acerca la tarjeta al lector: queda asociada a ese jugador (la lista muestra "· tarjeta RFID"). Un mismo UID no puede quedar asignado a dos jugadores.
-3. **Cancelar vinculación** anula la espera. Los jugadores sin tarjeta física siguen usando su UID virtual (botón "Pagar con tarjeta").
+3. **Cancelar vinculación** anula la espera. Los UID se normalizan (mayúsculas, sin espacios).
+4. **Iniciar partida** queda deshabilitado hasta que **todos** los jugadores tengan tarjeta vinculada (el servidor también lo valida).
 
 ### Durante la partida
 
-| En el cajero | Qué hace el servidor |
+Las pantallas de los jugadores **no tienen** botón de tirar ni de pagar: todo pasa por el cajero.
+
+| En el cajero / en la pantalla | Qué hace el servidor |
 |---|---|
-| Se presiona el **botón** | Lo trata como `TIRAR_DADOS` del jugador en turno, con todas las validaciones (fuera de partida o dados ya lanzados → aviso en todas las pantallas). Genera la tirada, envía `DADOS:d1,d2` a la Pico y la difunde a todos los jugadores. |
-| Un jugador tira desde su pantalla | La tirada también se envía a la Pico (`DADOS:d1,d2`). |
-| Se lee una tarjeta **con un pago pendiente** | `IdentificarTarjeta(uid)`: si es la del deudor, se ejecuta el pago, se registra la transacción, todos lo ven y se envía **`PAGO_OK`**; si es de otro jugador o no está registrada, se rechaza con un aviso y se envía **`PAGO_RECHAZADO`**. |
-| Se lee una tarjeta **sin pago pendiente** | Solo se informa de quién es y su saldo ("Cajero: Tarjeta de Beto: saldo $1,496."), sin modificar nada ni tocar el LED de pago. |
+| Todas las pantallas: "Turno de Ana: presione el botón físico para lanzar los dados" | Se espera el botón. |
+| Se presiona el **botón** | Tirada del jugador en turno con todas las validaciones: genera los dados, envía `DADOS:d1,d2` a la Pico y la difunde a todos. Una pulsación fuera de momento (partida sin iniciar, segunda pulsación en el mismo turno, otra fase) se **ignora** y queda en el registro ("Cajero: Se ignoró el botón: ..."). |
+| El jugador pulsa **Comprar** | No cobra: todas las pantallas muestran "Ana quiere comprar Avenida Báltica por ₡60: acerque su tarjeta al lector". **No comprar** cancela mientras se espera. |
+| Se lee la tarjeta **del comprador** | Valida saldo y que la propiedad siga libre, cobra, asigna, registra `CompraPropiedad` → **`PAGO_OK`**. Saldo insuficiente → rechazo + **`PAGO_RECHAZADO`** (puede pulsar "No comprar"). |
+| Cobro obligatorio (alquiler, impuesto, carta de pago) | Todas las pantallas: "Beto debe pagar ₡4 a Ana: acerque su tarjeta al lector". Solo la tarjeta del deudor paga → **`PAGO_OK`**; si no le alcanza se aplica la eliminación → **`PAGO_RECHAZADO`**. |
+| Tarjeta de **otro jugador** o **no registrada** durante una compra o un pago | Rechazo con el motivo en todas las pantallas → **`PAGO_RECHAZADO`**. |
+| Tarjeta leída **sin pago ni compra pendiente** | Solo se informa de quién es y su saldo ("Cajero: Tarjeta de Beto: saldo ₡1,496."), sin tocar el LED. |
+| Ingresos (Salida, cartas a favor) | Automáticos, sin tarjeta. |
 
 - La tarjeta **solo identifica** al jugador: el saldo vive siempre en el servidor.
-- Con la Pico conectada, un jugador con **tarjeta física** debe pagar con el lector: su botón "Pagar con tarjeta" se deshabilita (y el servidor rechaza el pago simulado). Si la Pico se desconecta, vuelve a poder usar el botón.
+- El servidor rechaza `TIRAR_DADOS` y `PAGAR_CON_TARJETA` que lleguen por la red mientras esté en modo hardware.
+
+### Modo sin hardware (pruebas)
+
+En la barra del cajero del organizador hay una casilla **Modo sin hardware (pruebas)**, desactivada por defecto. Al activarla aparecen **Simular botón** y **Simular tarjeta del jugador en turno**, que recorren exactamente el mismo flujo que la Pico (incluida la compra); no se envía nada a la Pico y no hace falta vincular tarjetas. Los demás jugadores nunca ven esos botones.
 
 En el código: `Monopoly.Core.Hardware` (`IDispositivoCajero`, `CajeroPico` sobre `SerialPort`, `CajeroSimulado`, `CajeroPorLineas`, `ProtocoloCajero`) y `Servidor.UsarCajero(...)`.
 

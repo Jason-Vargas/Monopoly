@@ -21,10 +21,8 @@ internal sealed class FormularioJuego : Form
     private readonly PanelTablero _panelTablero = new PanelTablero { Dock = DockStyle.Fill };
     private readonly PanelJugadores _panelJugadores = new PanelJugadores { Dock = DockStyle.Fill };
     private readonly Label _lblInfo = new Label { Dock = DockStyle.Fill, AutoSize = false, Padding = new Padding(6, 2, 6, 2), TextAlign = ContentAlignment.MiddleLeft };
-    private readonly Button _btnTirar = CrearBoton("Tirar dados", Color.FromArgb(40, 120, 200));
     private readonly Button _btnComprar = CrearBoton("Comprar", Color.FromArgb(40, 140, 70));
     private readonly Button _btnNoComprar = CrearBoton("No comprar", Color.FromArgb(120, 120, 120));
-    private readonly Button _btnPagar = CrearBoton("Pagar con tarjeta", Color.FromArgb(200, 120, 20));
     private readonly Button _btnTerminar = CrearBoton("Terminar turno", Color.FromArgb(150, 40, 40));
     private readonly Button _btnHistorial = CrearBoton("Historial de transacciones...", Color.FromArgb(70, 70, 90));
     private readonly Button _btnRetirar = CrearBoton("Retirar jugadores desconectados...", Color.FromArgb(200, 100, 0));
@@ -62,10 +60,8 @@ internal sealed class FormularioJuego : Form
             Controls.Add(new BarraCajero(sesion) { Dock = DockStyle.Top });
         }
 
-        _btnTirar.Click += (s, e) => Solicitar(cliente => cliente.TirarDados());
         _btnComprar.Click += (s, e) => Solicitar(cliente => cliente.ComprarPropiedad());
         _btnNoComprar.Click += (s, e) => Solicitar(cliente => cliente.NoComprar());
-        _btnPagar.Click += (s, e) => Solicitar(cliente => cliente.PagarConTarjeta());
         _btnTerminar.Click += (s, e) => Solicitar(cliente => cliente.TerminarTurno());
         _btnHistorial.Click += (s, e) => AbrirHistorial();
         _btnRetirar.Click += (s, e) => RetirarDesconectados();
@@ -138,11 +134,9 @@ internal sealed class FormularioJuego : Form
         lateral.Controls.Add(_lblInfo, 0, 1);
 
         FlowLayoutPanel botones = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 4, 0, 4) };
-        _btnTirar.Width = 382;
-        botones.Controls.Add(_btnTirar);
         botones.Controls.Add(_btnComprar);
         botones.Controls.Add(_btnNoComprar);
-        botones.Controls.Add(_btnPagar);
+        _btnTerminar.Width = 382;
         botones.Controls.Add(_btnTerminar);
         lateral.Controls.Add(botones, 0, 2);
 
@@ -168,6 +162,7 @@ internal sealed class FormularioJuego : Form
         _panelJugadores.MostrarEstado(estado, _sesion.IdJugador);
         HabilitarAcciones(estado);
         _lblInfo.Text = DescribirSituacion(estado);
+        _panelTablero.Aviso = AvisoParaTodos(estado);
     }
 
     private void AlRecibirDados(int idJugador, int dado1, int dado2)
@@ -292,13 +287,12 @@ internal sealed class FormularioJuego : Form
         bool activo = yo.HasValue && (estado?.BuscarJugador(yo.Value)?.Activo ?? false);
         bool miTurno = enCurso && activo && i!.IdJugadorEnTurno == yo;
 
-        _btnTirar.Enabled = miTurno && i!.Fase == FaseTurno.EsperandoDados;
+        // Los dados se lanzan con el botón físico y se paga o compra acercando la tarjeta al lector:
+        // aquí solo quedan las decisiones del jugador en turno.
         _btnComprar.Enabled = miTurno && i!.Fase == FaseTurno.EsperandoDecisionCompra;
-        _btnNoComprar.Enabled = _btnComprar.Enabled;
-        // Con la Pico conectada, quien tiene tarjeta física paga pasándola por el lector, no con el botón.
-        bool debo = enCurso && yo.HasValue && i!.IdDeudor == yo;
-        _btnPagar.Enabled = debo && !PagaConLector(estado, yo);
+        _btnNoComprar.Enabled = miTurno && (i!.Fase == FaseTurno.EsperandoDecisionCompra || i.Fase == FaseTurno.EsperandoTarjetaCompra);
         _btnTerminar.Enabled = miTurno && i!.Fase == FaseTurno.PuedeTerminar;
+        bool debo = enCurso && yo.HasValue && i!.IdDeudor == yo;
         _btnHistorial.Enabled = !_desconectado;
 
         // El organizador puede retirar a jugadores desconectados para que la partida no quede esperándolos.
@@ -316,15 +310,6 @@ internal sealed class FormularioJuego : Form
         _lblInfo.BackColor = miTurno || debo ? Color.FromArgb(255, 238, 170) : Color.White;
     }
 
-    /// <summary>
-    /// Indica si el jugador debe pagar con la tarjeta física en el lector del cajero.
-    /// </summary>
-    private static bool PagaConLector(EstadoRed? estado, int? idJugador)
-    {
-        return estado != null && idJugador.HasValue && estado.CajeroConectado
-               && estado.BuscarJugador(idJugador.Value)?.TieneTarjetaFisica == true;
-    }
-
     private string DescribirSituacion(EstadoRed estado)
     {
         InstantaneaJuego i = estado.Instantanea;
@@ -339,39 +324,55 @@ internal sealed class FormularioJuego : Form
         }
 
         bool miTurno = i.IdJugadorEnTurno == _sesion.IdJugador;
-        string quien = miTurno ? "Usted" : estado.BuscarJugador(i.IdJugadorEnTurno.Value)?.Nombre ?? "?";
-        if (!miTurno && !estado.EstaConectado(i.IdJugadorEnTurno.Value))
+        string titulo = $"Turno {i.NumeroTurno}/{i.MaximoTurnos}{(miTurno ? " · ¡ES SU TURNO!" : string.Empty)}";
+        return titulo + "\n" + AvisoParaTodos(estado);
+    }
+
+    /// <summary>
+    /// Aviso de lo que se espera ahora, igual para todas las pantallas (se muestra también en el tablero).
+    /// </summary>
+    private string AvisoParaTodos(EstadoRed estado)
+    {
+        InstantaneaJuego i = estado.Instantanea;
+        if (i.Estado != EstadoPartida.EnCurso || !i.IdJugadorEnTurno.HasValue)
         {
-            string ayuda = _sesion.EsOrganizador ? "Espere o retírelo (botón naranja)." : "Espere a que vuelva o lo retire el organizador.";
-            return $"Turno {i.NumeroTurno}/{i.MaximoTurnos} · {quien} está DESCONECTADO.\n{ayuda}";
+            return string.Empty;
         }
 
-        string accion;
+        int idEnTurno = i.IdJugadorEnTurno.Value;
+        string nombre = estado.BuscarJugador(idEnTurno)?.Nombre ?? "?";
+        bool miTurno = idEnTurno == _sesion.IdJugador;
+        if (!estado.EstaConectado(idEnTurno) && !miTurno)
+        {
+            string ayuda = _sesion.EsOrganizador ? "Espere o retírelo (botón naranja)." : "Espere a que vuelva o lo retire el organizador.";
+            return $"{nombre} está DESCONECTADO. {ayuda}";
+        }
+
+        bool esperaCajero = i.Fase == FaseTurno.EsperandoDados || i.Fase == FaseTurno.EsperandoPago || i.Fase == FaseTurno.EsperandoTarjetaCompra;
+        if (estado.EnPausaPorCajero && esperaCajero)
+        {
+            return "⏸ Partida en pausa: el cajero (Pico W) está desconectado. Esperando a que el organizador lo reconecte.";
+        }
+
+        string pruebas = estado.ModoSinHardware ? " (modo pruebas: el organizador lo simula)" : string.Empty;
+        Propiedad? propiedad = i.IdPropiedadEnVenta.HasValue ? _tablero.BuscarPropiedad(i.IdPropiedadEnVenta.Value) : null;
+        string precio = propiedad == null ? string.Empty : Formato.Dinero(propiedad.PrecioCompra);
         switch (i.Fase)
         {
             case FaseTurno.EsperandoDados:
-                accion = $"{quien} debe lanzar los dados.";
-                break;
+                return $"Turno de {nombre}: presione el botón físico para lanzar los dados{pruebas}.";
             case FaseTurno.EsperandoDecisionCompra:
-                Propiedad? propiedad = i.IdPropiedadEnVenta.HasValue ? _tablero.BuscarPropiedad(i.IdPropiedadEnVenta.Value) : null;
-                accion = propiedad == null
-                    ? $"{quien} decide si compra."
-                    : $"{quien} decide si compra {propiedad.Nombre} por {Formato.Dinero(propiedad.PrecioCompra)}.";
-                break;
+                return miTurno
+                    ? $"¿Desea comprar {propiedad?.Nombre} por {precio}? Elija \"Comprar\" o \"No comprar\"."
+                    : $"{nombre} decide si compra {propiedad?.Nombre} por {precio}.";
+            case FaseTurno.EsperandoTarjetaCompra:
+                return $"{nombre} quiere comprar {propiedad?.Nombre} por {precio}: acerque su tarjeta al lector{pruebas}."
+                       + (miTurno ? " (\"No comprar\" cancela)" : string.Empty);
             case FaseTurno.EsperandoPago:
-                bool debo = i.IdDeudor == _sesion.IdJugador;
-                bool conLector = PagaConLector(estado, i.IdDeudor);
-                string instruccion = debo
-                    ? (conLector ? "Pase su tarjeta por el lector del cajero." : "Pulse \"Pagar con tarjeta\".")
-                    : (conLector ? "Esperando la tarjeta en el lector del cajero." : "Esperando el pago.");
-                accion = $"{i.DescripcionPagoPendiente}. {instruccion}";
-                break;
+                return $"{i.DescripcionPagoPendiente}: acerque su tarjeta al lector{pruebas}.";
             default:
-                accion = $"{quien} puede terminar el turno.";
-                break;
+                return miTurno ? "Puede terminar su turno." : $"{nombre} puede terminar su turno.";
         }
-
-        return $"Turno {i.NumeroTurno}/{i.MaximoTurnos}{(miTurno ? " · ¡ES SU TURNO!" : string.Empty)}\n{accion}";
     }
 
     private void AgregarAlRegistro(string texto)

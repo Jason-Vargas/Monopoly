@@ -33,6 +33,7 @@ public class PruebasIntegracionRed : IDisposable
             CarpetaPartidas = _carpeta,
         });
         _servidor = new Servidor(juego, 0, IPAddress.Loopback);
+        _servidor.EstablecerModoSinHardware(true);  // los clientes tiran y pagan desde la red (sin Pico)
         _servidor.Iniciar();
     }
 
@@ -119,9 +120,10 @@ public class PruebasIntegracionRed : IDisposable
 
         // Compra: todos ven el nuevo dueño y el saldo.
         c[0].Cliente.ComprarPropiedad();
+        c[0].Cliente.PagarConTarjeta();  // la compra se confirma con la tarjeta
         foreach (ClientePrueba cliente in c)
         {
-            cliente.Esperar(Protocolo.Evento, m => m.Campo(0) == "Ana compró Avenida Báltica por $60.");
+            cliente.Esperar(Protocolo.Evento, m => m.Campo(0) == "Ana compró Avenida Báltica por ₡60.");
         }
 
         TodosEsperan(c, e => e.PropietarioDe(3) == 1 && e.BuscarJugador(1)!.Saldo == 1440);
@@ -197,6 +199,7 @@ public class PruebasIntegracionRed : IDisposable
         c[0].Cliente.TirarDados();
         c[0].EsperarEstado(e => e.Instantanea.Fase == FaseTurno.EsperandoDecisionCompra);
         c[0].Cliente.ComprarPropiedad();
+        c[0].Cliente.PagarConTarjeta();  // la compra se confirma con la tarjeta
         c[0].EsperarEstado(e => e.PropietarioDe(3) == 1);
 
         c[1].Cliente.ConsultarTransacciones(FiltroTransacciones.Jugador, "Ana");
@@ -303,6 +306,7 @@ public class PruebasIntegracionRed : IDisposable
             MaximoTurnos = 1,
         });
         using Servidor servidor = new Servidor(juego, 0, IPAddress.Loopback);
+        servidor.EstablecerModoSinHardware(true);
         servidor.Iniciar();
         using ClientePrueba ana = new ClientePrueba(servidor.Puerto, "Ana");
         using ClientePrueba beto = new ClientePrueba(servidor.Puerto, "Beto");
@@ -314,6 +318,7 @@ public class PruebasIntegracionRed : IDisposable
         ana.Cliente.TirarDados();
         ana.EsperarEstado(e => e.Instantanea.Fase == FaseTurno.EsperandoDecisionCompra);
         ana.Cliente.ComprarPropiedad();
+        ana.Cliente.PagarConTarjeta();
         ana.EsperarEstado(e => e.PropietarioDe(3) == 1);
         ana.Cliente.TerminarTurno();
 
@@ -323,7 +328,7 @@ public class PruebasIntegracionRed : IDisposable
             cliente.EsperarEstado(e => e.Instantanea.Estado == EstadoPartida.Finalizada && e.Instantanea.IdGanador == 1);
             Mensaje fin = cliente.Esperar(Protocolo.Fin);
             Assert.Equal("Ana", fin.Campo(0));
-            Assert.Contains("Ana: patrimonio $1,500; Beto: patrimonio $1,500", fin.Campo(1));
+            Assert.Contains("Ana: patrimonio ₡1,500; Beto: patrimonio ₡1,500", fin.Campo(1));
             Assert.Contains("Historial: ", fin.Campo(1));
         }
     }

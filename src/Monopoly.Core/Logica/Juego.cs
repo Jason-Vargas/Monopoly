@@ -392,11 +392,13 @@ public class Juego
     }
 
     /// <summary>
-    /// Compra la propiedad libre en la que cayó el jugador en turno.
+    /// El jugador en turno quiere comprar la propiedad libre en la que cayó. No se cobra nada todavía:
+    /// la partida pasa a <see cref="FaseTurno.EsperandoTarjetaCompra"/> y la compra se ejecuta solo
+    /// cuando el jugador acerca su tarjeta (<see cref="IdentificarTarjeta"/>). Es el único camino para comprar.
     /// </summary>
     /// <param name="idJugador">Jugador que lo solicita.</param>
-    /// <returns>El resultado; falla sin saldo suficiente o si la propiedad tiene dueño.</returns>
-    public ResultadoAccion ComprarPropiedad(int idJugador)
+    /// <returns>El resultado; falla fuera de turno, si la propiedad tiene dueño o si no hay compra posible.</returns>
+    public ResultadoAccion SolicitarCompra(int idJugador)
     {
         lock (_candado)
         {
@@ -422,29 +424,26 @@ public class Juego
                 return ResultadoAccion.Fallido($"{propiedad.Nombre} ya tiene propietario ({propiedad.Propietario.Nombre}).");
             }
 
+            if (_fase == FaseTurno.EsperandoTarjetaCompra && _propiedadEnVenta == propiedad)
+            {
+                return ResultadoAccion.Fallido($"Ya se está esperando la tarjeta de {jugador.Nombre} para comprar {propiedad.Nombre}.");
+            }
+
             if (_fase != FaseTurno.EsperandoDecisionCompra || _propiedadEnVenta != propiedad)
             {
                 return ResultadoAccion.Fallido("No hay ninguna compra pendiente.");
             }
 
-            if (!jugador.PuedePagar(propiedad.PrecioCompra))
-            {
-                return ResultadoAccion.Fallido(
-                    $"Saldo insuficiente: {propiedad.Nombre} cuesta {Formato.Dinero(propiedad.PrecioCompra)} y {jugador.Nombre} tiene {Formato.Dinero(jugador.Saldo)}.");
-            }
-
-            Banco.Cobrar(jugador, propiedad.PrecioCompra, TipoTransaccion.CompraPropiedad, _numeroTurno, $"Compra de {propiedad.Nombre}");
-            jugador.AgregarPropiedad(propiedad);
-            _propiedadEnVenta = null;
-            _fase = FaseTurno.PuedeTerminar;
-            string mensaje = $"{jugador.Nombre} compró {propiedad.Nombre} por {Formato.Dinero(propiedad.PrecioCompra)}.";
+            _fase = FaseTurno.EsperandoTarjetaCompra;
+            string mensaje = $"{jugador.Nombre} quiere comprar {propiedad.Nombre} por {Formato.Dinero(propiedad.PrecioCompra)}: acerque su tarjeta al lector.";
             RegistrarEvento(mensaje);
             return ResultadoAccion.Correcto(mensaje);
         }
     }
 
     /// <summary>
-    /// Rechaza la compra de la propiedad libre en la que cayó el jugador en turno.
+    /// Rechaza la compra de la propiedad libre en la que cayó el jugador en turno, también mientras se
+    /// espera su tarjeta (cancela la compra).
     /// </summary>
     /// <param name="idJugador">Jugador que lo solicita.</param>
     /// <returns>El resultado.</returns>
@@ -458,12 +457,15 @@ public class Juego
                 return error;
             }
 
-            if (_fase != FaseTurno.EsperandoDecisionCompra || _propiedadEnVenta == null)
+            bool decidiendo = _fase == FaseTurno.EsperandoDecisionCompra || _fase == FaseTurno.EsperandoTarjetaCompra;
+            if (!decidiendo || _propiedadEnVenta == null)
             {
                 return ResultadoAccion.Fallido("No hay ninguna compra pendiente.");
             }
 
-            string mensaje = $"{jugador.Nombre} decidió no comprar {_propiedadEnVenta.Nombre}.";
+            string mensaje = _fase == FaseTurno.EsperandoTarjetaCompra
+                ? $"{jugador.Nombre} canceló la compra de {_propiedadEnVenta.Nombre}."
+                : $"{jugador.Nombre} decidió no comprar {_propiedadEnVenta.Nombre}.";
             _propiedadEnVenta = null;
             _fase = FaseTurno.PuedeTerminar;
             RegistrarEvento(mensaje);
@@ -472,12 +474,17 @@ public class Juego
     }
 
     /// <summary>
-    /// Procesa la lectura de una tarjeta RFID (o su UID virtual). Si hay un pago pendiente y la tarjeta
-    /// es del deudor, se valida y ejecuta el pago; si el deudor no puede cubrirlo, paga lo que tiene
-    /// y queda eliminado.
+    /// Procesa la lectura de una tarjeta RFID (o su UID virtual en modo de pruebas):
+    /// <list type="bullet">
+    /// <item>Esperando la tarjeta para una compra: si es la del comprador y le alcanza el saldo, se cobra y se
+    /// asigna la propiedad; sin saldo suficiente se rechaza y vuelve a la decisión (Comprar / No comprar).</item>
+    /// <item>Con un pago obligatorio pendiente: si es la del deudor, se ejecuta el pago; si no puede cubrirlo,
+    /// paga lo que tiene y queda eliminado.</item>
+    /// </list>
+    /// <see cref="ResultadoAccion.PagoAceptado"/> indica si el pago o la compra se completó (para el LED de pago).
     /// </summary>
     /// <param name="uid">UID leído.</param>
-    /// <returns>El resultado; falla si no hay pago pendiente o la tarjeta no es del deudor.</returns>
+    /// <returns>El resultado; falla si no hay compra ni pago pendiente o la tarjeta no es la esperada.</returns>
     public ResultadoAccion IdentificarTarjeta(string uid)
     {
         lock (_candado)
@@ -491,24 +498,70 @@ public class Juego
             Jugador? jugador = BuscarPorUid(uidNormalizado);
             if (jugador == null)
             {
-                return ResultadoAccion.Fallido($"La tarjeta {uidNormalizado} no está registrada.");
+                return ResultadoAccion.Fallido($"La tarjeta {uidNormalizado} no está registrada.") with { PagoAceptado = false };
+            }
+
+            if (_fase == FaseTurno.EsperandoTarjetaCompra && _propiedadEnVenta != null)
+            {
+                return ComprarConTarjeta(jugador);
             }
 
             if (_pagoPendiente == null)
             {
-                return ResultadoAccion.Fallido($"Tarjeta de {jugador.Nombre} leída, pero no hay ningún pago pendiente.");
+                return ResultadoAccion.Fallido($"Tarjeta de {jugador.Nombre} leída, pero no hay ningún pago ni compra pendiente.");
             }
 
             Jugador deudor = _pagoPendiente.Deudor;
             if (jugador != deudor)
             {
-                return ResultadoAccion.Fallido($"La tarjeta pertenece a {jugador.Nombre}; se espera la tarjeta de {deudor.Nombre}.");
+                return ResultadoAccion.Fallido($"La tarjeta pertenece a {jugador.Nombre}; se espera la tarjeta de {deudor.Nombre}.")
+                    with { PagoAceptado = false };
             }
 
             RegistrarEvento($"{deudor.Nombre} se identificó con su tarjeta.");
             string mensaje = EjecutarPagoPendiente();
-            return ResultadoAccion.Correcto(mensaje);
+            return ResultadoAccion.Correcto(mensaje) with { PagoAceptado = deudor.Activo };
         }
+    }
+
+    /// <summary>
+    /// Ejecuta la compra esperada con la tarjeta leída (se llama con el candado tomado).
+    /// </summary>
+    private ResultadoAccion ComprarConTarjeta(Jugador jugador)
+    {
+        Jugador comprador = _turnos.Frente();
+        Propiedad propiedad = _propiedadEnVenta!;
+        if (jugador != comprador)
+        {
+            return ResultadoAccion.Fallido(
+                $"La tarjeta pertenece a {jugador.Nombre}; se espera la tarjeta de {comprador.Nombre} para comprar {propiedad.Nombre}.")
+                with { PagoAceptado = false };
+        }
+
+        if (!propiedad.EstaDisponible)
+        {
+            _propiedadEnVenta = null;
+            _fase = FaseTurno.PuedeTerminar;
+            return ResultadoAccion.Fallido($"{propiedad.Nombre} ya no está disponible.") with { PagoAceptado = false };
+        }
+
+        if (!comprador.PuedePagar(propiedad.PrecioCompra))
+        {
+            // Vuelve a la decisión: el jugador puede elegir "No comprar".
+            _fase = FaseTurno.EsperandoDecisionCompra;
+            string rechazo = $"Compra rechazada por saldo insuficiente: {propiedad.Nombre} cuesta {Formato.Dinero(propiedad.PrecioCompra)} " +
+                             $"y {comprador.Nombre} tiene {Formato.Dinero(comprador.Saldo)}.";
+            RegistrarEvento(rechazo);
+            return ResultadoAccion.Fallido(rechazo) with { PagoAceptado = false };
+        }
+
+        Banco.Cobrar(comprador, propiedad.PrecioCompra, TipoTransaccion.CompraPropiedad, _numeroTurno, $"Compra de {propiedad.Nombre}");
+        comprador.AgregarPropiedad(propiedad);
+        _propiedadEnVenta = null;
+        _fase = FaseTurno.PuedeTerminar;
+        string mensaje = $"{comprador.Nombre} compró {propiedad.Nombre} por {Formato.Dinero(propiedad.PrecioCompra)}.";
+        RegistrarEvento(mensaje);
+        return ResultadoAccion.Correcto(mensaje) with { PagoAceptado = true };
     }
 
     /// <summary>
@@ -533,6 +586,8 @@ public class Juego
                     return ResultadoAccion.Fallido("Debe lanzar los dados antes de terminar el turno.");
                 case FaseTurno.EsperandoDecisionCompra:
                     return ResultadoAccion.Fallido($"Debe decidir si compra {_propiedadEnVenta?.Nombre} antes de terminar el turno.");
+                case FaseTurno.EsperandoTarjetaCompra:
+                    return ResultadoAccion.Fallido($"Se espera su tarjeta para comprar {_propiedadEnVenta?.Nombre}; acérquela al lector o pulse \"No comprar\".");
                 case FaseTurno.EsperandoPago:
                     return ResultadoAccion.Fallido($"Tiene un pago pendiente: {DescribirPago(_pagoPendiente!)}. Acerque su tarjeta.");
             }
@@ -869,7 +924,7 @@ public class Juego
     {
         _pagoPendiente = pago;
         _fase = FaseTurno.EsperandoPago;
-        RegistrarEvento($"{DescribirPago(pago)}. {pago.Deudor.Nombre} debe acercar su tarjeta.");
+        RegistrarEvento($"{DescribirPago(pago)}: acerque su tarjeta al lector.");
     }
 
     /// <summary>

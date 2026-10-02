@@ -47,7 +47,7 @@ public class PruebasPartida : PartidaDePrueba
         Assert.Equal(FaseTurno.EsperandoDecisionCompra, Estado().Fase);
         Assert.Equal(3, Estado().IdPropiedadEnVenta);
 
-        Ok(Juego.ComprarPropiedad(Ana));
+        Comprar(Ana);
 
         Assert.Equal(1440, Saldo(Ana));
         Assert.Same(J(Ana), Juego.Tablero.BuscarPropiedad(3)!.Propietario);
@@ -70,7 +70,7 @@ public class PruebasPartida : PartidaDePrueba
         Ok(Juego.VincularTarjeta(Ana, "a1 b2 c3 d4"));
         Ok(Juego.IniciarPartida(Ana));
         Ok(Juego.TirarDados(Ana));
-        Ok(Juego.ComprarPropiedad(Ana));
+        Comprar(Ana);
         Ok(Juego.TerminarTurno(Ana));
 
         Ok(Juego.TirarDados(Beto));
@@ -79,7 +79,7 @@ public class PruebasPartida : PartidaDePrueba
         Assert.Equal(FaseTurno.EsperandoPago, estado.Fase);
         Assert.Equal(Beto, estado.IdDeudor);
         Assert.Equal(4, estado.MontoPagoPendiente);
-        Assert.Equal("Beto debe pagar $4 a Ana", estado.DescripcionPagoPendiente);
+        Assert.Equal("Beto debe pagar ₡4 a Ana", estado.DescripcionPagoPendiente);
         Rechazada(Juego.TerminarTurno(Beto), "pago pendiente");
 
         Rechazada(Juego.IdentificarTarjeta("A1B2C3D4"), "pertenece a Ana; se espera la tarjeta de Beto");
@@ -105,7 +105,7 @@ public class PruebasPartida : PartidaDePrueba
         Ok(Juego.VincularTarjeta(Beto, "0A1B2C3D"));
         Ok(Juego.IniciarPartida(Ana));
         Ok(Juego.TirarDados(Ana));
-        Ok(Juego.ComprarPropiedad(Ana));
+        Comprar(Ana);
         Ok(Juego.TerminarTurno(Ana));
         Ok(Juego.TirarDados(Beto));
 
@@ -120,7 +120,7 @@ public class PruebasPartida : PartidaDePrueba
     {
         Crear(2, new[] { 1, 2, 3, 3, 2, 2 }, casualidad: Carta(TipoCartaEvento.IrACasilla, 3));
         Ok(Juego.TirarDados(Ana));
-        Ok(Juego.ComprarPropiedad(Ana));
+        Comprar(Ana);
         Ok(Juego.TerminarTurno(Ana));
         Ok(Juego.TirarDados(Beto));
         Ok(Juego.NoComprar(Beto));
@@ -198,7 +198,7 @@ public class PruebasPartida : PartidaDePrueba
         Ok(Juego.NoComprar(Ana));
         Ok(Juego.TerminarTurno(Ana));
         Ok(Juego.TirarDados(Beto));
-        Ok(Juego.ComprarPropiedad(Beto));
+        Comprar(Beto);
         Ok(Juego.TerminarTurno(Beto));
         Ok(Juego.TirarDados(Carla));
         Ok(Juego.NoComprar(Carla));
@@ -244,7 +244,7 @@ public class PruebasPartida : PartidaDePrueba
         Ok(Juego.NoComprar(Ana));
         Ok(Juego.TerminarTurno(Ana));
         Ok(Juego.TirarDados(Beto));
-        Ok(Juego.ComprarPropiedad(Beto));
+        Comprar(Beto);
         Ok(Juego.TerminarTurno(Beto));
         Ok(Juego.TirarDados(Ana));
         Ok(Juego.TerminarTurno(Ana));
@@ -263,7 +263,7 @@ public class PruebasPartida : PartidaDePrueba
         Assert.Equal(Path.GetFullPath(Carpeta), Path.GetDirectoryName(ruta));
         string contenido = File.ReadAllText(ruta);
         Assert.Contains("HISTORIAL DE TRANSACCIONES", contenido);
-        Assert.Contains("Beto (ficha Azul): saldo $0", contenido);
+        Assert.Contains("Beto (ficha Azul): saldo ₡0", contenido);
         Assert.Contains("eliminado", contenido);
         Assert.Contains("Pérdida por evento", contenido);
 
@@ -276,7 +276,7 @@ public class PruebasPartida : PartidaDePrueba
     {
         Crear(2, new[] { 1, 2, 1, 3 }, maximoTurnos: 2);
         Ok(Juego.TirarDados(Ana));
-        Ok(Juego.ComprarPropiedad(Ana));
+        Comprar(Ana);
         Ok(Juego.TerminarTurno(Ana));
         Ok(Juego.TirarDados(Beto));
         Ok(Juego.IdentificarTarjeta(Uid(Beto)));
@@ -318,7 +318,7 @@ public class PruebasPartida : PartidaDePrueba
     {
         Crear(2, new[] { 1, 2 });
         Ok(Juego.TirarDados(Ana));
-        Ok(Juego.ComprarPropiedad(Ana));
+        Comprar(Ana);
 
         ResultadoAccion primera = Ok(Juego.ExportarHistorial());
         ResultadoAccion segunda = Ok(Juego.ExportarHistorial());
@@ -353,7 +353,7 @@ public class PruebasPartida : PartidaDePrueba
         Ok(Juego.NoComprar(Ana));
         Ok(Juego.TerminarTurno(Ana));
         Ok(Juego.TirarDados(Beto));
-        Ok(Juego.ComprarPropiedad(Beto));
+        Comprar(Beto);
         int transacciones = Juego.Historial.Cantidad;
 
         Rechazada(Juego.RetirarJugador(Carla, Beto), "Solo el organizador (Ana)");
@@ -387,7 +387,7 @@ public class PruebasPartida : PartidaDePrueba
     {
         Crear(2, new[] { 1, 2 });
         Ok(Juego.TirarDados(Ana));
-        Ok(Juego.ComprarPropiedad(Ana));
+        Comprar(Ana);
 
         ResultadoAccion tabla = Ok(Juego.ConsultarTransacciones(Beto));
 
