@@ -200,7 +200,7 @@ internal sealed class SesionJuego : IDisposable
         Cliente.Dispose();
         Servidor?.Dispose();
         _cajero.EstadoCambiado -= AlCambiarEstadoCajero;
-        _cajero.LimpiarDisplays();
+        _cajero.Limpiar();
         _cajero.Dispose();
         _hiloInterfaz.Dispose();
     }

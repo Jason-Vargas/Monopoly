@@ -18,7 +18,7 @@ Proyecto 1 de Algoritmos y Estructuras de Datos 1 (TEC, II Semestre 2026). El en
 - Configuración común en `Directory.Build.props`: `Nullable` habilitado, `ImplicitUsings` **deshabilitado** (los usings implícitos traen `System.Linq` y `System.Collections.Generic`), documentación XML generada.
 - **Tema**: Monopoly clásico (edición Atlantic City) con nombres de casillas en español y estética clásica. **No** copiar el logotipo ni la mascota oficial.
 - **Hardware al final**: hasta entonces todo debe funcionar en **modo simulado** (dados aleatorios, identificación de jugador sin tarjeta). El hardware se abstrae detrás de interfaces para poder cambiar simulado ↔ real.
-- **Hardware: Raspberry Pi Pico W con MicroPython (ya NO Arduino)**, conectada por **USB serial** a la computadora del organizador, que aloja al banco. Lleva lector RFID RC522, 2 displays de 7 segmentos (dado de 2 dígitos), un botón y el LED integrado. Detalles en `hardware/README.md`.
+- **Hardware: Raspberry Pi Pico W con MicroPython (ya NO Arduino)**, conectada por **USB serial** a la computadora del organizador, que aloja al banco. Por ahora solo lleva **lector RFID RC522, un botón y un LED de pago** (más el LED integrado); no se agregan displays ni otros componentes. Detalles en `hardware/README.md`.
 - Los reportes y partidas generados se guardan en `partidas/` (ignorada por git).
 
 ## ⛔ Prohibición de colecciones y LINQ
@@ -91,21 +91,27 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
 
 ## Módulo electrónico (`hardware/`, Raspberry Pi Pico W + MicroPython)
 
-- Archivos: `hardware/pico/main.py` (firmware), `hardware/pico/mfrc522.py` (driver propio mínimo, MIT, solo lee el UID de 4 o 7 bytes), `hardware/pico/prueba_uid.py` (anotar UIDs), `hardware/README.md` (materiales, conexiones, instalación, pruebas, problemas). La prohibición de colecciones aplica al C#; el MicroPython es independiente.
-- Conexiones: RC522 por SPI0 (SCK GP18, MOSI GP19, MISO GP16, SDA/CS GP17, RST GP20, 3V3(OUT)); display 1 a–g en GP2–GP8, display 2 a–g en GP9–GP15, directos con 470 Ω por segmento (≈ 3 mA; peor caso 42 mA < 50 mA totales); botón en GP21 a GND con pull-up interno; LED `Pin("LED")`. `CATODO_COMUN` en `main.py` elige cátodo o ánodo común.
+- Archivos: `hardware/pico/main.py` (firmware), `hardware/pico/mfrc522.py` (driver **original que funciona en la placa**, sin cambios; API `MFRC522(spi, gpioRst=20, gpioCs=17)`, `request(REQIDL)`, `anticoll()` → 5 bytes = 4 de UID + checksum), `hardware/pico/prueba_uid.py` (anotar UIDs), `hardware/pico_original/` (copia de lo que había en la Pico), `hardware/README.md` (materiales, conexiones, instalación, pruebas, problemas). La prohibición de colecciones aplica al C#; el MicroPython es independiente.
+- **Pines en uso** (reemplazan cualquier asignación anterior):
+  - RC522 por SPI0: SCK = GP18, MOSI = GP19, MISO = GP16, CS = GP17, RST = GP20; alimentación 3V3(OUT).
+  - Botón: GP15 a GND, con pull-up interno (`Pin(15, Pin.IN, Pin.PULL_UP)`), flanco de bajada y antirrebote de 50 ms.
+  - LED de pago: GP14, salida activa en alto (resistencia en serie, cátodo a GND), apagado al arrancar.
+  - LED integrado `Pin("LED")`: destello al presionar el botón, al leer una tarjeta y al recibir `DADOS`.
+- `main.py` nunca bloquea: botón cada ~10 ms, RC522 cada ~100 ms, serial con `select.poll`; el LED de pago (2 s / 3 parpadeos) se temporiza con `time.ticks_ms()`. Por el serial **solo** salen líneas del protocolo (`DEPURAR = True` imprime errores como líneas `#...`, que el juego ignora).
 - **Los dados los genera el servidor** (estado oficial en el banco): la Pico envía `BOTON` y solo muestra lo que recibe.
 - Protocolo serie (líneas de texto; la Pico termina con `\r\n`):
-  - Pico → PC: `LISTO` (al arrancar), `BOTON`, `RFID:<UID hex mayúsculas>` (una misma tarjeta no se repite mientras está apoyada ni hasta 2 s después de retirarla), `PONG`, `ERROR:<detalle>`.
-  - PC → Pico: `DADOS:d1,d2` (1 a 6, con animación "rodando"), `LIMPIAR`, `PING`.
+  - Pico → PC: `LISTO` (al arrancar), `BOTON` (una vez por pulsación), `RFID:<UID>` (4 bytes en hex mayúsculas, sin espacios; la misma tarjeta no se repite mientras está apoyada ni hasta 2 s después de retirarla, una distinta se lee de inmediato), `PONG`.
+  - PC → Pico: `DADOS:d1,d2` (solo destello del LED integrado), `PAGO_OK` (LED de pago 2 s), `PAGO_RECHAZADO` (3 parpadeos rápidos), `LIMPIAR` (apaga el LED de pago), `PING`.
   - Al abrir el puerto, la PC debe enviar `PING` y esperar `PONG` (el `LISTO` pudo salir antes). No enviar nunca Ctrl+C (0x03).
 
 ## Integración del cajero en C# (`Monopoly.Core.Hardware`, en la computadora del organizador)
 
-- `IDispositivoCajero` (eventos `BotonPresionado`, `TarjetaLeida`, `EstadoCambiado`, `ErrorDispositivo`; `MostrarDados`, `LimpiarDisplays`; `Estado`, `EsFisico`) con dos implementaciones: `CajeroPico` (físico) y `CajeroSimulado` (sin placa: se juega con los botones de la interfaz; `SimularBoton`/`SimularTarjeta` para depurar). `CajeroPorLineas` es la base que interpreta el protocolo de líneas (ignora lo que no es del protocolo y cuenta `LineasIgnoradas`); las pruebas usan un `CajeroFalso` que hereda de ella.
+- `IDispositivoCajero` (eventos `BotonPresionado`, `TarjetaLeida`, `EstadoCambiado`, `ErrorDispositivo`; `MostrarDados`, `IndicarPago(aceptado)` → `PAGO_OK`/`PAGO_RECHAZADO`, `Limpiar`; `Estado`, `EsFisico`) con dos implementaciones: `CajeroPico` (físico) y `CajeroSimulado` (sin placa: se juega con los botones de la interfaz; `SimularBoton`/`SimularTarjeta` para depurar). `CajeroPorLineas` es la base que interpreta el protocolo de líneas (ignora lo que no es del protocolo y cuenta `LineasIgnoradas`); las pruebas usan un `CajeroFalso` que hereda de ella.
 - `CajeroPico`: `SerialPort` a 115200, `NewLine "\n"`, **`DtrEnable` y `RtsEnable` = true**, hilo lector propio, `Conectar()` insiste con PING hasta recibir PONG (2,5 s), PING cada 2 s y desconexión si no hay respuesta en ~7 s o si falla la lectura/escritura (cable retirado). `PuertosDisponibles()` y `DetectarPuerto()` (PING/PONG en cada puerto).
 - `Servidor.UsarCajero(cajero)` (por defecto un `CajeroSimulado`); el servidor no libera el dispositivo. Los eventos del cajero se procesan con el mismo `_candadoProcesamiento` que las solicitudes:
   - `BOTON` → `ProcesarTirarDados(null, idEnTurno)` con las mismas validaciones que `TIRAR_DADOS`; los rechazos se avisan a todos como `EVENTO|Cajero: ...`.
   - Toda tirada aceptada (botón o interfaz) → `cajero.MostrarDados(d1, d2)` + `DADOS` a todos.
+  - Tarjeta leída con pago pendiente → `cajero.IndicarPago(exito)`: `PAGO_OK` si pagó el deudor, `PAGO_RECHAZADO` si la tarjeta es de otro o no está registrada. Las lecturas sin pago pendiente no tocan el LED.
   - `RFID:uid`: si hay vinculación pendiente → `Juego.VincularTarjeta`; si hay pago pendiente → `Juego.IdentificarTarjeta`; si no → `Juego.ConsultarTarjeta` (solo informa dueño y saldo).
   - `PAGAR_CON_TARJETA` se rechaza si hay cajero físico conectado y el jugador tiene tarjeta física.
   - Cambios de estado del cajero → `EVENTO|Cajero: ...` + `ESTADO` (campo 19 = cajero físico conectado).
@@ -174,7 +180,7 @@ Marcar con `[x]` al completar cada punto en su etapa.
 - [x] 11. Transacciones con todos los campos y los 7 tipos mínimos; banco como origen/destino
 - [x] 12. Historial: agregar, recorrer ambos sentidos, buscar por jugador y por tipo, imprimir todo
 - [x] 13. Exportación del historial a TXT con los campos mínimos
-- [ ] 14. Módulo electrónico: dado de 2 dígitos + RFID (Raspberry Pi Pico W) — *firmware, driver, integración en C# por USB serial (botón, dados en displays, vinculación y pago con tarjeta, vuelta automática al modo simulado) y pruebas con cajero falso listos; falta la prueba de extremo a extremo con la placa real*
+- [ ] 14. Módulo electrónico (Raspberry Pi Pico W): RFID + botón + LED de pago — *firmware nuevo probado en la placa real (LISTO, PING/PONG, solo líneas del protocolo) y con el `CajeroPico` del juego; integración en C# (botón → tirada, vinculación y pago con tarjeta, `PAGO_OK`/`PAGO_RECHAZADO`, vuelta automática al modo simulado) con pruebas. Falta una partida completa con tarjetas y botón físicos. El enunciado pide dado de 2 dígitos con displays: por decisión del grupo, por ahora no se incluyen*
 - [x] 15. Todas las clases mínimas presentes; ninguna colección de .NET
 - [x] 16. Comunicación por sockets TCP con protocolo documentado (`docs/protocolo.md`) y difusión de estado
 - [x] 17. Todas las validaciones del servidor (en `Juego`; el cliente no puede modificar el modelo porque sus mutadores son `internal`)

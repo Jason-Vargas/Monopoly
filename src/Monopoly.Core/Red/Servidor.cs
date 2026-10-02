@@ -419,7 +419,7 @@ public sealed class Servidor : IDisposable
     /// <summary>
     /// Tira los dados del jugador indicado. La solicitud puede venir de un cliente (<paramref name="conexion"/>)
     /// o del botón del cajero (<c>null</c>): los rechazos se responden al cliente o se avisan a todos.
-    /// La tirada se muestra también en los displays del cajero.
+    /// La tirada también se envía al cajero.
     /// </summary>
     private void ProcesarTirarDados(ConexionCliente? conexion, int id)
     {
@@ -632,6 +632,7 @@ public sealed class Servidor : IDisposable
             {
                 // Pago pendiente: solo la tarjeta del deudor lo ejecuta.
                 ResultadoAccion pago = _juego.IdentificarTarjeta(uid);
+                _cajero.IndicarPago(pago.Exito);  // LED de pago: encendido 2 s o 3 parpadeos rápidos
                 if (pago.Exito)
                 {
                     DifundirCambios();
@@ -686,7 +687,7 @@ public sealed class Servidor : IDisposable
         }
 
         AvisarCajero(CajeroFisicoActivo
-            ? $"{_cajero.Descripcion} conectado: los dados se muestran en los displays y se paga con la tarjeta."
+            ? $"{_cajero.Descripcion} conectado: el botón tira los dados y se paga con la tarjeta."
             : "Sin cajero físico: se juega en modo simulado (botones de la pantalla).");
         EnviarATodos(CodificarEstado());
     }

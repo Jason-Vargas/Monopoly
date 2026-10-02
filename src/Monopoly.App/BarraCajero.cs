@@ -182,7 +182,7 @@ internal sealed class BarraCajero : ToolStrip
         if (conectada)
         {
             _lblEstado.ForeColor = Color.FromArgb(20, 120, 40);
-            _lblEstado.Text = $"● {cajero.Descripcion}: dados en los displays y pago con tarjeta";
+            _lblEstado.Text = $"● {cajero.Descripcion}: botón de dados y pago con tarjeta";
         }
         else if (cajero.EsFisico)
         {

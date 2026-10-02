@@ -45,7 +45,7 @@ public sealed class EstadoRed
 
     /// <summary>
     /// Indica si el cajero físico (Pico W) está conectado: los jugadores con tarjeta física deben pagar
-    /// pasándola por el lector, y los dados se muestran en sus displays.
+    /// pasándola por el lector, y el botón del cajero tira los dados.
     /// </summary>
     public bool CajeroConectado { get; }
 
