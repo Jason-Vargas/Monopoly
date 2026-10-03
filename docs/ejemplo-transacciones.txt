@@ -1,0 +1,70 @@
+﻿==============================================================================================================================
+MONOPOLY DISTRIBUIDO - HISTORIAL DE TRANSACCIONES
+==============================================================================================================================
+Fecha de la partida: 02/10/2026 19:23:51
+Fecha de exportación: 02/10/2026 19:23:51
+Jugadores:
+  - Ana (ficha Rojo): saldo ₡360, patrimonio ₡1,630, activo
+  - Beto (ficha Azul): saldo ₡604, patrimonio ₡1,814, activo
+  - Carla (ficha Verde): saldo ₡324, patrimonio ₡1,724, activo
+  - Dani (ficha Amarillo): saldo ₡892, patrimonio ₡1,782, activo
+Total de transacciones: 56
+
+N°    Turno  Hora     Tipo                         Origen           Destino               Monto Descripción
+----- ------ -------- ---------------------------- ---------------- ---------------- ---------- -----------
+1     1      19:23:51 Compra de propiedad          Ana              BANCO                   ₡60 Compra de Avenida Báltica
+2     2      19:23:51 Compra de propiedad          Beto             BANCO                  ₡150 Compra de Compañía de Electricidad
+3     3      19:23:51 Compra de propiedad          Carla            BANCO                  ₡140 Compra de Plaza San Carlos
+4     4      19:23:51 Pago de alquiler             Dani             Carla                   ₡10 Dani debe pagar ₡10 de alquiler a Carla por Plaza San Carlos.
+5     7      19:23:51 Compra de propiedad          Carla            BANCO                  ₡180 Compra de Avenida Tennessee
+6     8      19:23:51 Compra de propiedad          Dani             BANCO                  ₡160 Compra de Avenida Virginia
+7     9      19:23:51 Compra de propiedad          Ana              BANCO                  ₡200 Compra de Ferrocarril Pensilvania
+8     10     19:23:51 Compra de propiedad          Beto             BANCO                  ₡280 Compra de Jardines Marvin
+9     11     19:23:51 Compra de propiedad          Carla            BANCO                  ₡200 Compra de Ferrocarril B&O
+10    12     19:23:51 Ganancia por evento          BANCO            Dani                    ₡50 Casualidad: El banco le paga un dividendo de ₡50.
+11    13     19:23:51 Compra de propiedad          Ana              BANCO                  ₡220 Compra de Avenida Kentucky
+12    14     19:23:51 Compra de propiedad          Beto             BANCO                  ₡200 Compra de Ferrocarril Vía Corta
+13    15     19:23:51 Compra de propiedad          Carla            BANCO                  ₡300 Compra de Avenida Pacífico
+14    16     19:23:51 Compra de propiedad          Dani             BANCO                  ₡240 Compra de Avenida Illinois
+15    17     19:23:51 Compra de propiedad          Ana              BANCO                  ₡260 Compra de Avenida Ventnor
+16    18     19:23:51 Premio por pasar por inicio  BANCO            Beto                   ₡200 Premio por pasar por la Salida
+17    19     19:23:51 Compra de propiedad          Carla            BANCO                  ₡320 Compra de Avenida Pensilvania
+18    20     19:23:51 Compra de propiedad          Dani             BANCO                  ₡150 Compra de Compañía de Agua
+19    21     19:23:51 Compra de propiedad          Ana              BANCO                  ₡350 Compra de Plaza del Parque
+20    22     19:23:51 Compra de propiedad          Beto             BANCO                  ₡100 Compra de Avenida Oriental
+21    23     19:23:51 Premio por pasar por inicio  BANCO            Carla                  ₡200 Premio por pasar por la Salida
+22    23     19:23:51 Compra de propiedad          Carla            BANCO                   ₡60 Compra de Avenida Mediterráneo
+23    24     19:23:51 Pago de alquiler             Dani             Carla                   ₡28 Dani debe pagar ₡28 de alquiler a Carla por Avenida Pensilvania.
+24    25     19:23:51 Premio por pasar por inicio  BANCO            Ana                    ₡200 Premio por pasar por la Salida
+25    25     19:23:51 Pago al banco                Ana              BANCO                  ₡200 Ana debe pagar ₡200 de Impuesto sobre la Renta al banco.
+26    26     19:23:51 Pago entre jugadores         Carla            Beto                    ₡10 Arca Comunal: Es su cumpleaños: cobre ₡10 de cada jugador.
+27    26     19:23:51 Pago entre jugadores         Dani             Beto                    ₡10 Arca Comunal: Es su cumpleaños: cobre ₡10 de cada jugador.
+28    26     19:23:51 Pago entre jugadores         Ana              Beto                    ₡10 Arca Comunal: Es su cumpleaños: cobre ₡10 de cada jugador.
+29    27     19:23:51 Pago al banco                Carla            BANCO                  ₡200 Carla debe pagar ₡200 de Impuesto sobre la Renta al banco.
+30    28     19:23:51 Premio por pasar por inicio  BANCO            Dani                   ₡200 Premio por pasar por la Salida
+31    28     19:23:51 Ganancia por evento          BANCO            Dani                    ₡50 Arca Comunal: Venta de acciones: cobre ₡50.
+32    29     19:23:51 Pago de alquiler             Ana              Carla                   ₡10 Ana debe pagar ₡10 de alquiler a Carla por Plaza San Carlos.
+33    30     19:23:51 Pago de alquiler             Beto             Dani                    ₡20 Beto debe pagar ₡20 de alquiler a Dani por Avenida Illinois.
+34    32     19:23:51 Compra de propiedad          Dani             BANCO                  ₡140 Compra de Avenida de los Estados
+35    33     19:23:51 Pago de alquiler             Ana              Carla                   ₡14 Ana debe pagar ₡14 de alquiler a Carla por Avenida Tennessee.
+36    35     19:23:51 Pago de alquiler             Carla            Ana                     ₡25 Carla debe pagar ₡25 de alquiler a Ana por Ferrocarril Pensilvania.
+37    37     19:23:51 Pago de alquiler             Ana              Carla                   ₡25 Ana debe pagar ₡25 de alquiler a Carla por Ferrocarril B&O.
+38    39     19:23:51 Pago de alquiler             Carla            Dani                    ₡20 Carla debe pagar ₡20 de alquiler a Dani por Avenida Illinois.
+39    41     19:23:51 Pago de alquiler             Ana              Beto                    ₡25 Ana debe pagar ₡25 de alquiler a Beto por Ferrocarril Vía Corta.
+40    42     19:23:51 Pérdida por evento           Beto             BANCO                  ₡100 Arca Comunal: Cuenta del hospital: pague ₡100.
+41    45     19:23:51 Premio por pasar por inicio  BANCO            Ana                    ₡200 Premio por pasar por la Salida
+42    46     19:23:51 Compra de propiedad          Beto             BANCO                  ₡220 Compra de Avenida Indiana
+43    47     19:23:51 Premio por pasar por inicio  BANCO            Carla                  ₡200 Premio por pasar por la Salida
+44    47     19:23:51 Compra de propiedad          Carla            BANCO                  ₡200 Compra de Ferrocarril Reading
+45    49     19:23:51 Pago de alquiler             Ana              Beto                    ₡28 Ana debe pagar ₡28 de alquiler a Beto por Compañía de Electricidad.
+46    50     19:23:51 Compra de propiedad          Beto             BANCO                  ₡260 Compra de Avenida Atlántico
+47    51     19:23:51 Pago de alquiler             Carla            Dani                    ₡12 Carla debe pagar ₡12 de alquiler a Dani por Avenida Virginia.
+48    53     19:23:51 Compra de propiedad          Ana              BANCO                  ₡180 Compra de Plaza Santiago
+49    54     19:23:51 Pago de alquiler             Beto             Ana                     ₡35 Beto debe pagar ₡35 de alquiler a Ana por Plaza del Parque.
+50    55     19:23:51 Pago de alquiler             Carla            Beto                    ₡18 Carla debe pagar ₡18 de alquiler a Beto por Avenida Indiana.
+51    56     19:23:51 Compra de propiedad          Dani             BANCO                  ₡200 Compra de Avenida Nueva York
+52    57     19:23:51 Pago de alquiler             Ana              Beto                    ₡18 Ana debe pagar ₡18 de alquiler a Beto por Avenida Indiana.
+53    58     19:23:51 Premio por pasar por inicio  BANCO            Beto                   ₡200 Premio por pasar por la Salida
+54    58     19:23:51 Pérdida por evento           Beto             BANCO                   ₡50 Arca Comunal: Cuota escolar: pague ₡50.
+55    59     19:23:51 Pago de alquiler             Carla            Dani                    ₡28 Carla debe pagar ₡28 de alquiler a Dani por Compañía de Agua.
+56    60     19:23:51 Pago de alquiler             Dani             Carla                   ₡50 Dani debe pagar ₡50 de alquiler a Carla por Ferrocarril B&O.

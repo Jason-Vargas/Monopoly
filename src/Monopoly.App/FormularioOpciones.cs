@@ -85,8 +85,7 @@ internal sealed class FormularioOpciones : Form
         if (_sesion.MonitorCajero != null)
         {
             _sesion.MonitorCajero.LineaAgregada += AgregarAlMonitor;
-            _sesion.MonitorCajero.RecorrerLineas(linea => _lstMonitor.Items.Add(linea));
-            DesplazarMonitor();
+            MostrarMonitor();
         }
 
         CargarPuertos();
@@ -237,23 +236,27 @@ internal sealed class FormularioOpciones : Form
     private void CargarPuertos()
     {
         string? seleccionado = _cmbPuertos.SelectedItem as string;
+        string[] puertos = CajeroPico.PuertosDisponibles();
         _cmbPuertos.Items.Clear();
-        foreach (string puerto in CajeroPico.PuertosDisponibles())
+        foreach (string puerto in puertos)
         {
             _cmbPuertos.Items.Add(puerto);
         }
 
-        if (seleccionado != null && _cmbPuertos.Items.Contains(seleccionado))
+        int indice = PosicionDe(puertos, seleccionado);
+        if (indice < 0 && _sesion.Cajero.EsFisico && _sesion.Cajero is CajeroPico actual)
         {
-            _cmbPuertos.SelectedItem = seleccionado;
+            indice = PosicionDe(puertos, actual.NombrePuerto);
         }
-        else if (_sesion.Cajero.EsFisico && _sesion.Cajero is CajeroPico actual && _cmbPuertos.Items.Contains(actual.NombrePuerto))
+
+        if (indice < 0)
         {
-            _cmbPuertos.SelectedItem = actual.NombrePuerto;
+            indice = puertos.Length - 1;
         }
-        else if (_cmbPuertos.Items.Count > 0)
+
+        if (indice >= 0)
         {
-            _cmbPuertos.SelectedIndex = _cmbPuertos.Items.Count - 1;
+            _cmbPuertos.SelectedIndex = indice;
         }
 
         ActualizarPico();
@@ -395,19 +398,42 @@ internal sealed class FormularioOpciones : Form
         _tarjetas.Invalidate();
     }
 
-    private void AgregarAlMonitor(string linea)
+    /// <summary>
+    /// Posición de un puerto en el arreglo (búsqueda lineal), o -1 si no está.
+    /// </summary>
+    private static int PosicionDe(string[] puertos, string? nombre)
     {
-        _lstMonitor.Items.Add(linea);
-        while (_lstMonitor.Items.Count > 40)
+        for (int i = 0; i < puertos.Length; i++)
         {
-            _lstMonitor.Items.RemoveAt(0);
+            if (puertos[i] == nombre)
+            {
+                return i;
+            }
         }
 
-        DesplazarMonitor();
+        return -1;
     }
 
-    private void DesplazarMonitor()
+    private void AgregarAlMonitor(string linea)
     {
+        MostrarMonitor();
+    }
+
+    /// <summary>
+    /// Muestra las líneas guardadas por <see cref="MonitorCajero"/> (en su cola circular, con el tope de
+    /// líneas): el ListBox solo muestra, no almacena.
+    /// </summary>
+    private void MostrarMonitor()
+    {
+        if (_sesion.MonitorCajero == null)
+        {
+            return;
+        }
+
+        _lstMonitor.BeginUpdate();
+        _lstMonitor.Items.Clear();
+        _sesion.MonitorCajero.RecorrerLineas(linea => _lstMonitor.Items.Add(linea));
+        _lstMonitor.EndUpdate();
         _lstMonitor.TopIndex = Math.Max(0, _lstMonitor.Items.Count - 1);
     }
 

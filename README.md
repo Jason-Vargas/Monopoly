@@ -2,7 +2,7 @@
 
 Proyecto 1 del curso **Algoritmos y Estructuras de Datos 1** — Instituto Tecnológico de Costa Rica, II Semestre 2026.
 
-Versión simplificada de Monopoly Electrónico (tema clásico, edición Atlantic City en español) con arquitectura cliente-servidor sobre TCP, estructuras de datos lineales implementadas desde cero y un módulo electrónico (lector RFID, botón para los dados y LED de pago) basado en una Raspberry Pi Pico W con MicroPython, conectada por USB a la computadora del organizador (ver [`hardware/README.md`](hardware/README.md)).
+Versión simplificada de Monopoly Electrónico (tema clásico, edición Atlantic City en español) con arquitectura cliente-servidor sobre TCP, estructuras de datos lineales implementadas desde cero y un módulo electrónico (lector RFID, botón para los dados, LED de pago y, pendiente de implementar, 2 displays de 7 segmentos para el dado) basado en una Raspberry Pi Pico W con MicroPython, conectada por USB a la computadora del organizador (ver [`hardware/README.md`](hardware/README.md)).
 
 > Proyecto académico sin afiliación con Hasbro. No se usan el logotipo ni la mascota oficiales.
 
@@ -23,8 +23,11 @@ Monopoly/
 ├── CLAUDE.md                    decisiones técnicas y checklist de requisitos
 ├── docs/
 │   ├── enunciado.pdf            enunciado del proyecto
+│   ├── uml.md                   diagramas de clases (Mermaid)
+│   ├── estructuras.md           estructuras de datos: operaciones, complejidad y uso
 │   ├── protocolo.md             protocolo TCP cliente-servidor
-│   └── prueba-en-red.md         firewall, IP y prueba con varias computadoras
+│   ├── prueba-en-red.md         firewall, IP y prueba con varias computadoras
+│   └── ejemplo-transacciones.txt  historial exportado de una partida (respaldo, ver abajo)
 ├── hardware/
 │   ├── README.md                materiales, conexiones, instalación y pruebas de la Pico W
 │   └── pico/                    main.py (firmware), mfrc522.py (driver) y prueba_uid.py
@@ -43,7 +46,19 @@ Monopoly/
 
 Cada carpeta de `src/Monopoly.Core` tiene un `Leeme.md` con lo que contiene (el de `Estructuras/` explica qué estructura se usa para qué). Las partidas exportadas se guardan en `partidas/` (no se sube a git).
 
-El enunciado está en [`docs/enunciado.pdf`](docs/enunciado.pdf) y el protocolo cliente-servidor en [`docs/protocolo.md`](docs/protocolo.md).
+## Documentación
+
+| Entregable | Archivo |
+|---|---|
+| Enunciado | [`docs/enunciado.pdf`](docs/enunciado.pdf) |
+| Diagrama UML | [`docs/uml.md`](docs/uml.md) |
+| Estructuras de datos | [`docs/estructuras.md`](docs/estructuras.md) |
+| Protocolo cliente-servidor (TCP) | [`docs/protocolo.md`](docs/protocolo.md) |
+| Protocolo serie con la Pico W, conexiones y firmware | [`hardware/README.md`](hardware/README.md) y [`hardware/pico/`](hardware/pico/) |
+| Archivo de transacciones de una partida | [`docs/ejemplo-transacciones.txt`](docs/ejemplo-transacciones.txt) |
+| Manual de ejecución | este README |
+
+**Sobre `docs/ejemplo-transacciones.txt`:** es un **respaldo provisional** generado con una partida simulada de 4 jugadores (60 turnos, modo sin hardware, dados con semilla fija) usando la misma lógica del servidor; contiene los 7 tipos de transacción. Se reemplazará por el TXT de una partida real con el cajero físico (tarjetas RFID y botón).
 
 ## Requisitos
 
@@ -93,4 +108,9 @@ En **Opciones** (engranaje), el organizador puede marcar **Modo sin hardware (pr
 
 ## Estado
 
-En desarrollo: estructuras de datos, modelo, lógica del juego, comunicación TCP, interfaz gráfica y cajero Pico W (botón, RFID y LED de pago por USB serial) integrados y con pruebas. Pendiente: ventana de fin y sonidos, una partida completa con el cajero físico y en 2 computadoras, y los entregables de documentación (UML, estructuras, archivo de transacciones).
+En desarrollo: estructuras de datos, modelo, lógica del juego, comunicación TCP, interfaz gráfica y cajero Pico W (botón, RFID y LED de pago por USB serial) integrados y con pruebas; documentación (UML, estructuras, protocolos) al día.
+
+Pendiente:
+- **2 displays de 7 segmentos para el dado electrónico (2 dígitos): pendiente de implementar.**
+- Partida completa con el cajero físico y en 2 computadoras, y su archivo de transacciones (reemplaza al respaldo).
+- Ventana de fin y sonidos.

@@ -18,7 +18,7 @@ Proyecto 1 de Algoritmos y Estructuras de Datos 1 (TEC, II Semestre 2026). El en
 - Configuración común en `Directory.Build.props`: `Nullable` habilitado, `ImplicitUsings` **deshabilitado** (los usings implícitos traen `System.Linq` y `System.Collections.Generic`), documentación XML generada.
 - **Tema**: Monopoly clásico (edición Atlantic City) con nombres de casillas en español y estética clásica. **No** copiar el logotipo ni la mascota oficial.
 - **Hardware al final**: hasta entonces todo debe funcionar en **modo simulado** (dados aleatorios, identificación de jugador sin tarjeta). El hardware se abstrae detrás de interfaces para poder cambiar simulado ↔ real.
-- **Hardware: Raspberry Pi Pico W con MicroPython (ya NO Arduino)**, conectada por **USB serial** a la computadora del organizador, que aloja al banco. Por ahora solo lleva **lector RFID RC522, un botón y un LED de pago** (más el LED integrado); no se agregan displays ni otros componentes. Detalles en `hardware/README.md`.
+- **Hardware: Raspberry Pi Pico W con MicroPython (ya NO Arduino)**, conectada por **USB serial** a la computadora del organizador, que aloja al banco. Lleva **lector RFID RC522, un botón y un LED de pago** (más el LED integrado); los **2 displays de 7 segmentos** del dado (2 dígitos) son requisito del enunciado y están **pendientes de implementar**. Detalles en `hardware/README.md`.
 - Los reportes y partidas generados se guardan en `partidas/` (ignorada por git).
 
 ## ⛔ Prohibición de colecciones y LINQ
@@ -199,12 +199,12 @@ Marcar con `[x]` al completar cada punto en su etapa.
 - [x] 11. Transacciones con todos los campos y los 7 tipos mínimos; banco como origen/destino
 - [x] 12. Historial: agregar, recorrer ambos sentidos, buscar por jugador y por tipo, imprimir todo
 - [x] 13. Exportación del historial a TXT con los campos mínimos
-- [ ] 14. Módulo electrónico (Raspberry Pi Pico W): RFID + botón + LED de pago — *firmware nuevo probado en la placa real (LISTO, PING/PONG, solo líneas del protocolo) y con el `CajeroPico` del juego; integración en C# (dados solo con el botón, compras y cobros solo con tarjeta, `PAGO_OK`/`PAGO_RECHAZADO`, pausa si se desconecta la Pico, modo sin hardware para pruebas) con pruebas. Falta una partida completa con tarjetas y botón físicos. El enunciado pide dado de 2 dígitos con displays: por decisión del grupo, por ahora no se incluyen*
+- [ ] 14. Módulo electrónico (Raspberry Pi Pico W): RFID + botón + LED de pago — *firmware nuevo probado en la placa real (LISTO, PING/PONG, solo líneas del protocolo) y con el `CajeroPico` del juego; integración en C# (dados solo con el botón, compras y cobros solo con tarjeta, `PAGO_OK`/`PAGO_RECHAZADO`, pausa si se desconecta la Pico, modo sin hardware para pruebas) con pruebas. Falta una partida completa con tarjetas y botón físicos. Los 2 displays de 7 segmentos (dado de 2 dígitos): pendiente de implementar.*
 - [x] 15. Todas las clases mínimas presentes; ninguna colección de .NET
 - [x] 16. Comunicación por sockets TCP con protocolo documentado (`docs/protocolo.md`) y difusión de estado
 - [x] 17. Todas las validaciones del servidor (en `Juego`; el cliente no puede modificar el modelo porque sus mutadores son `internal`)
 - [x] 18. Eliminación de jugadores y fin de partida (último activo o límite de turnos con patrimonio)
-- [ ] 19. Entregables: UML, doc. de estructuras, protocolo, archivo de transacciones, manual, hardware
+- [ ] 19. Entregables: UML (`docs/uml.md`), estructuras (`docs/estructuras.md`), protocolo TCP (`docs/protocolo.md`) y serie (`hardware/README.md`), manual (`README.md`) y hardware listos — *el archivo de transacciones (`docs/ejemplo-transacciones.txt`) es un respaldo de una partida simulada; falta reemplazarlo por el de una partida real con el cajero físico*
 - [ ] 20. Preparación de la defensa (guion de demostración cubriendo todos los puntos)
 
 ## Comandos

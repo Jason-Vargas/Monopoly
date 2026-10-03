@@ -57,8 +57,27 @@ public sealed class CajeroPico : CajeroPorLineas
     public static string[] PuertosDisponibles()
     {
         string[] puertos = SerialPort.GetPortNames();
-        Array.Sort(puertos, StringComparer.OrdinalIgnoreCase);
+        OrdenarPorInsercion(puertos);
         return puertos;
+    }
+
+    /// <summary>
+    /// Ordenamiento por inserción (sin mayúsculas/minúsculas): cada nombre se desplaza a la izquierda hasta su lugar.
+    /// </summary>
+    internal static void OrdenarPorInsercion(string[] nombres)
+    {
+        for (int i = 1; i < nombres.Length; i++)
+        {
+            string actual = nombres[i];
+            int j = i - 1;
+            while (j >= 0 && string.Compare(nombres[j], actual, StringComparison.OrdinalIgnoreCase) > 0)
+            {
+                nombres[j + 1] = nombres[j];
+                j--;
+            }
+
+            nombres[j + 1] = actual;
+        }
     }
 
     /// <summary>

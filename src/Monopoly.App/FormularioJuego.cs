@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Windows.Forms;
 using Monopoly.App.Estilo;
+using Monopoly.Core.Estructuras;
 using Monopoly.Core.Logica;
 using Monopoly.Core.Modelo;
 using Monopoly.Core.Red;
@@ -37,6 +38,7 @@ internal sealed class FormularioJuego : Form
     private readonly BotonRedondeado _btnRetirar = new BotonRedondeado { Text = "Retirar jugadores desconectados...", Estilo = EstiloBoton.Secundario };
     private readonly BotonRedondeado _btnActividad = new BotonRedondeado { Estilo = EstiloBoton.Secundario, Radio = 10f };
     private readonly ListBox _lstRegistro = new ListBox { IntegralHeight = false, BorderStyle = BorderStyle.None };
+    private readonly ColaCircular<string> _registro = new ColaCircular<string>(MaximoLineasRegistro + 1);
     private readonly Etiqueta _lblUltimoEvento = new Etiqueta(string.Empty, 9.5f);
     private readonly Notificaciones _notificaciones;
     private FormularioHistorial? _historial;
@@ -482,15 +484,23 @@ internal sealed class FormularioJuego : Form
         }
     }
 
+    /// <summary>
+    /// Guarda la línea en la cola circular del registro (descarta la más antigua al pasar del máximo) y
+    /// vuelve a mostrar la cola en la lista: el ListBox solo muestra, no almacena.
+    /// </summary>
     private void AgregarAlRegistro(string texto)
     {
-        _lstRegistro.Items.Add(texto);
-        if (_lstRegistro.Items.Count > MaximoLineasRegistro)
+        _registro.Encolar(texto);
+        while (_registro.Cantidad > MaximoLineasRegistro)
         {
-            _lstRegistro.Items.RemoveAt(0);
+            _registro.Desencolar();
         }
 
-        _lstRegistro.TopIndex = Math.Max(0, _lstRegistro.Items.Count - 1);
+        _lstRegistro.BeginUpdate();
+        _lstRegistro.Items.Clear();
+        _registro.Recorrer(linea => _lstRegistro.Items.Add(linea));
+        _lstRegistro.EndUpdate();
+        _lstRegistro.TopIndex = Math.Max(0, _registro.Cantidad - 1);
         _lblUltimoEvento.Text = texto;
     }
 

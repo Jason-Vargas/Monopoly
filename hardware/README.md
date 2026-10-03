@@ -1,6 +1,6 @@
 # Módulo electrónico (cajero): Raspberry Pi Pico W + MicroPython
 
-El módulo tiene un **lector de tarjetas RFID** (RC522), un **botón** (pide la tirada de dados) y un **LED de pago** (confirma o rechaza un pago). Se conecta por **USB** a la computadora del organizador, que aloja al banco. Los dados **no** se generan en la Pico: el botón pide la tirada al servidor, que la calcula (el estado oficial vive en el banco). La tarjeta solo identifica al jugador; el saldo está siempre en el servidor.
+El módulo tiene un **lector de tarjetas RFID** (RC522), un **botón** (pide la tirada de dados) y un **LED de pago** (confirma o rechaza un pago). Los **2 displays de 7 segmentos** del dado electrónico (2 dígitos) que pide el enunciado están **pendientes de implementar**. Se conecta por **USB** a la computadora del organizador, que aloja al banco. Los dados **no** se generan en la Pico: el botón pide la tirada al servidor, que la calcula (el estado oficial vive en el banco). La tarjeta solo identifica al jugador; el saldo está siempre en el servidor.
 
 ```
 hardware/
@@ -22,6 +22,7 @@ hardware/
 | 1 | Botón pulsador | |
 | 1 | LED (por ejemplo rojo o verde de 5 mm) | LED de pago |
 | 1 | Resistencia de 330 Ω | en serie con el LED (ver 2.3) |
+| 2 | Displays de 7 segmentos | dado electrónico de 2 dígitos — **pendiente de implementar** |
 | — | Protoboard y cables dupont | |
 
 ## 2. Conexiones
