@@ -88,22 +88,40 @@ internal static class Tema
     // ---------------------------------------------------------------- fuentes
 
     /// <summary>
+    /// Píxeles por "punto de diseño". La interfaz se diseña en píxeles fijos (las ventanas usan
+    /// <c>AutoScaleMode.None</c>), así que las fuentes también se crean en píxeles: un tamaño de 10 equivale a
+    /// 20 px, como un texto de 10 pt a 150 %. De este modo el texto y el diseño guardan siempre la misma
+    /// proporción, sea cual sea la escala de Windows.
+    /// </summary>
+    public const float PixelesPorPunto = 2f;
+
+    /// <summary>
     /// Fuente de títulos (Abril Fatface). Quien la crea debe liberarla si no la asigna a un control.
     /// </summary>
-    /// <param name="tamanio">Tamaño en puntos.</param>
+    /// <param name="tamanio">Tamaño de diseño.</param>
     public static Font Titulo(float tamanio)
     {
-        return new Font(Fuentes.Titulo, tamanio, FontStyle.Regular, GraphicsUnit.Point);
+        return new Font(Fuentes.Titulo, tamanio * PixelesPorPunto, FontStyle.Regular, GraphicsUnit.Pixel);
     }
 
     /// <summary>
     /// Fuente de texto (Lato).
     /// </summary>
-    /// <param name="tamanio">Tamaño en puntos.</param>
+    /// <param name="tamanio">Tamaño de diseño.</param>
     /// <param name="estilo">Normal o negrita.</param>
     public static Font Texto(float tamanio, FontStyle estilo = FontStyle.Regular)
     {
-        return new Font(Fuentes.Texto, tamanio, estilo, GraphicsUnit.Point);
+        return new Font(Fuentes.Texto, tamanio * PixelesPorPunto, estilo, GraphicsUnit.Pixel);
+    }
+
+    /// <summary>
+    /// Fuente monoespaciada (direcciones IP y monitor de la Pico).
+    /// </summary>
+    /// <param name="tamanio">Tamaño de diseño.</param>
+    /// <param name="estilo">Normal o negrita.</param>
+    public static Font Monoespaciada(float tamanio, FontStyle estilo = FontStyle.Regular)
+    {
+        return new Font("Consolas", tamanio * PixelesPorPunto, estilo, GraphicsUnit.Pixel);
     }
 
     // ---------------------------------------------------------------- colores del juego

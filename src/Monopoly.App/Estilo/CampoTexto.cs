@@ -92,9 +92,6 @@ internal sealed class CampoTexto : UserControl
     /// <summary>Valor entero, o <c>null</c> si no es un número.</summary>
     public int? ValorEntero => int.TryParse(_caja.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int n) ? n : null;
 
-    /// <summary>Indica si está marcado con error.</summary>
-    public bool Invalido => _error != null;
-
     /// <summary>
     /// Marca el campo como inválido: borde rojo y el mensaje debajo.
     /// </summary>

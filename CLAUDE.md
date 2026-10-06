@@ -18,7 +18,7 @@ Proyecto 1 de Algoritmos y Estructuras de Datos 1 (TEC, II Semestre 2026). El en
 - Configuración común en `Directory.Build.props`: `Nullable` habilitado, `ImplicitUsings` **deshabilitado** (los usings implícitos traen `System.Linq` y `System.Collections.Generic`), documentación XML generada.
 - **Tema**: Monopoly clásico (edición Atlantic City) con nombres de casillas en español y estética clásica. **No** copiar el logotipo ni la mascota oficial.
 - **Hardware al final**: hasta entonces todo debe funcionar en **modo simulado** (dados aleatorios, identificación de jugador sin tarjeta). El hardware se abstrae detrás de interfaces para poder cambiar simulado ↔ real.
-- **Hardware: Raspberry Pi Pico W con MicroPython (ya NO Arduino)**, conectada por **USB serial** a la computadora del organizador, que aloja al banco. Por ahora solo lleva **lector RFID RC522, un botón y un LED de pago** (más el LED integrado); no se agregan displays ni otros componentes. Detalles en `hardware/README.md`.
+- **Hardware: Raspberry Pi Pico W con MicroPython (ya NO Arduino)**, conectada por **USB serial** a la computadora del organizador, que aloja al banco. Lleva **lector RFID RC522, un botón y un LED de pago** (más el LED integrado); los **2 displays de 7 segmentos** del dado (2 dígitos) son requisito del enunciado y están **pendientes de implementar**. Detalles en `hardware/README.md`.
 - Los reportes y partidas generados se guardan en `partidas/` (ignorada por git).
 
 ## ⛔ Prohibición de colecciones y LINQ
@@ -46,6 +46,8 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
 - El cliente nunca modifica el estado: toda acción se envía al servidor (banco), que valida y responde.
 - Cada estructura de datos nueva lleva sus pruebas unitarias en Monopoly.Tests.
 - Compilar con `dotnet build` y probar con `dotnet test` antes de cada commit.
+- **Commits sin coautoría**: el autor es solo la cuenta de `git config`; nada de `Co-Authored-By` ni "Generated with Claude Code" (desactivado con `attribution` en `.claude/settings.json`).
+- Estructura de carpetas: ver el árbol en `README.md` (mantenerlo al día si se agregan carpetas).
 - **Polimorfismo real**: la lógica, la red y la interfaz NO usan `is`, `as`, casts ni `switch` sobre el tipo de casilla. Lo que dependa del tipo se resuelve con miembros virtuales (`AlCaer`, `Categoria`, `CalcularAlquiler`). En las pruebas sí se permiten casts para inspeccionar el tablero.
 
 ## Diseño del modelo (`Monopoly.Core.Modelo`)
@@ -91,7 +93,7 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
 
 ## Módulo electrónico (`hardware/`, Raspberry Pi Pico W + MicroPython)
 
-- Archivos: `hardware/pico/main.py` (firmware), `hardware/pico/mfrc522.py` (driver **original que funciona en la placa**, sin cambios; API `MFRC522(spi, gpioRst=20, gpioCs=17)`, `request(REQIDL)`, `anticoll()` → 5 bytes = 4 de UID + checksum), `hardware/pico/prueba_uid.py` (anotar UIDs), `hardware/pico_original/` (copia de lo que había en la Pico), `hardware/README.md` (materiales, conexiones, instalación, pruebas, problemas). La prohibición de colecciones aplica al C#; el MicroPython es independiente.
+- Archivos: `hardware/pico/main.py` (firmware), `hardware/pico/mfrc522.py` (driver **original que funciona en la placa**, sin cambios; API `MFRC522(spi, gpioRst=20, gpioCs=17)`, `request(REQIDL)`, `anticoll()` → 5 bytes = 4 de UID + checksum), `hardware/pico/prueba_uid.py` (anotar UIDs), `hardware/README.md` (materiales, conexiones, instalación, pruebas, problemas). La prohibición de colecciones aplica al C#; el MicroPython es independiente.
 - **Pines en uso** (reemplazan cualquier asignación anterior):
   - RC522 por SPI0: SCK = GP18, MOSI = GP19, MISO = GP16, CS = GP17, RST = GP20; alimentación 3V3(OUT).
   - Botón: GP15 a GND, con pull-up interno (`Pin(15, Pin.IN, Pin.PULL_UP)`), flanco de bajada y antirrebote de 50 ms.
@@ -113,10 +115,10 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
   - Toda tirada aceptada → `cajero.MostrarDados(d1, d2)` + `DADOS` a todos.
   - `RFID:uid` (normalizado: mayúsculas sin espacios): vinculación pendiente → `Juego.VincularTarjeta`; fase `EsperandoTarjetaCompra` o `EsperandoPago` → `Juego.IdentificarTarjeta` + `cajero.IndicarPago(PagoAceptado == true)` (`PAGO_OK` compra/pago correcto; `PAGO_RECHAZADO` tarjeta ajena, no registrada, saldo insuficiente para comprar o eliminación por no poder pagar); si no → `Juego.ConsultarTarjeta` (dueño y saldo, sin LED).
   - Sin cajero conectado y sin modo de pruebas la partida queda **en pausa** (`EstadoRed.EnPausaPorCajero`); al reconectar sigue donde estaba.
-  - **Modo sin hardware (pruebas)**: `Servidor.EstablecerModoSinHardware(true)` cambia a un `CajeroSimulado`; `SimularBoton()` y `SimularTarjetaDelJugadorEnTurno()` recorren el mismo flujo; no se envía nada a la Pico. El servidor de consola arranca en este modo.
+  - **Modo sin hardware (pruebas)**: `Servidor.EstablecerModoSinHardware(true)` cambia a un `CajeroSimulado`; `SimularBoton()` y `SimularTarjetaDelJugadorEnTurno()` recorren el mismo flujo; no se envía nada a la Pico.
   - Cambios de estado del cajero → `EVENTO|Cajero: ...` + `ESTADO`.
 - Protocolo TCP: `VINCULAR_TARJETA|idJugador` (solo el organizador y con cajero físico; `0` cancela). Los avisos del cajero son `EVENTO` con el prefijo `Cajero: `.
-- Interfaz del organizador: `BarraCajero` (ToolStrip arriba en la sala y en el juego: puerto COM, ↻, Conectar/Desconectar, Detectar, estado, casilla "Modo sin hardware (pruebas)" con "Simular botón" / "Simular tarjeta del jugador en turno"; alerta si la Pico se desconecta). `SesionJuego.CambiarCajero`/`EstablecerModoSinHardware`; `SesionJuego.CajeroCambiado` avisa en el hilo de la interfaz. En la sala: "Vincular tarjeta" / "Cancelar vinculación" e "Iniciar" bloqueado hasta que todos tengan tarjeta (modo hardware). En el juego no hay botones de tirar ni de pagar: el aviso para todos ("Turno de X: presione el botón físico...", "X quiere comprar P por ₡N: acerque su tarjeta al lector", "X debe pagar ₡N a Y: acerque su tarjeta al lector") se ve en el panel y en el centro del tablero (`PanelTablero.Aviso`).
+- Interfaz del organizador: todo lo de la Pico está en `FormularioOpciones` (engranaje, en la sala y en el juego): estado, puerto COM, ↻, "Detectar automáticamente", "Conectar", "Desconectar", "Probar LED" (envía `PAGO_OK`), monitor de líneas (`MonitorCajero`: BOTON, RFID, errores y conexión; vive en `SesionJuego.MonitorCajero` y avisa con `PicoPerdida` si la Pico se pierde sin pedirlo), tarjetas vinculadas y la casilla "Modo sin hardware (pruebas)" con "Simular botón" / "Simular tarjeta del jugador en turno". `SesionJuego.CambiarCajero`/`EstablecerModoSinHardware`; `SesionJuego.CajeroCambiado` avisa en el hilo de la interfaz. En la sala: "Vincular tarjeta" / "Cancelar vinculación" e "Iniciar" bloqueado hasta que todos tengan tarjeta (modo hardware). En el juego no hay botones de tirar ni de pagar: el aviso para todos ("Turno de X: presione el botón físico...", "X quiere comprar P por ₡N: acerque su tarjeta al lector", "X debe pagar ₡N a Y: acerque su tarjeta al lector") se ve en el panel y en el centro del tablero (`PanelTablero.Aviso`).
 
 ## Publicación y prueba en red
 
@@ -136,15 +138,23 @@ La prueba `PruebasRestricciones` (en Monopoly.Tests) recorre todos los `.cs` y f
 - Desconexiones: las tarjetas muestran "DESCONECTADO"; el organizador ve el botón "Retirar jugadores desconectados..."; un jugador que pierde la conexión puede volver al inicio ya relleno (`VolverParaReconectar` + `ArgumentosInicio.ParaReconectar`), salvo que el servidor haya cerrado.
 - `Paleta`: datos del tablero (colores de grupo y de ficha delegan en `Tema`). `Casilla.Detalle` (virtual) da el texto secundario de cada casilla.
 
-## Rediseño de la interfaz (en curso: paso 1 de 3 hecho)
+## Rediseño de la interfaz (en curso: pasos 1 y 2 de 3 hechos)
 
 - Nombre visible del juego: **MONOPOLY TEC** (`Tema.NombreJuego`), con logotipo propio (marquesina roja con luces, `Estilo/Logotipo.cs`). Nada del logotipo, la mascota ni las ilustraciones oficiales.
-- **Sistema de estilo** en `src/Monopoly.App/Estilo` (namespace `Monopoly.App.Estilo`): `Tema` (paleta: verde menta, rojo clásico, crema/marfil, colores de grupo menos saturados, éxito/error/información/advertencia; fuentes `Titulo(pt)` y `Texto(pt, estilo)`), `Fuentes` (Abril Fatface para títulos y Lato normal/negrita para texto, SIL OFL 1.1, incrustadas como recursos y cargadas con `PrivateFontCollection` + `AddFontMemResourceEx`; licencias en `Estilo/Fuentes/OFL-*.txt`, copiadas a `Licencias/` en la salida; si fallan, Georgia y Segoe UI), `Dibujo` (antialiasing, redondeados, sombras, fondo con patrón de tablero, indicador, ✓ dibujada), `BotonRedondeado` (hereda de `Button` para conservar teclado/accesibilidad; estilos Principal/Secundario/Exito), `TarjetaPanel`, `CampoTexto` (etiqueta + caja + error en rojo), `Etiqueta` (dibujada con GDI+), `Notificaciones`/`AvisoNotificacion` (toasts), `SelectorFicha`, `DibujoFicha` (6 fichas: sombrero, carro, barco, perro, dedal, bota), `DibujoDado`, `Iconos`.
+- **Sistema de estilo** en `src/Monopoly.App/Estilo` (namespace `Monopoly.App.Estilo`): `Tema` (paleta: verde menta, rojo clásico, crema/marfil, colores de grupo menos saturados, éxito/error/información/advertencia; fuentes `Titulo(t)`, `Texto(t, estilo)` y `Monoespaciada(t)`), `Fuentes` (Abril Fatface para títulos y Lato normal/negrita para texto, SIL OFL 1.1, incrustadas como recursos y cargadas con `PrivateFontCollection` + `AddFontMemResourceEx`; licencias en `Estilo/Fuentes/OFL-*.txt`, copiadas a `Licencias/` en la salida; si fallan, Georgia y Segoe UI), `Dibujo` (antialiasing, redondeados, sombras, fondo con patrón de tablero, indicador, ✓ dibujada), `BotonRedondeado` (hereda de `Button` para conservar teclado/accesibilidad; estilos Principal/Secundario/Exito), `TarjetaPanel`, `CampoTexto` (etiqueta + caja + error en rojo), `Etiqueta` (dibujada con GDI+), `Notificaciones`/`AvisoNotificacion` (toasts), `SelectorFicha`, `DibujoFicha` (6 fichas: sombrero, carro, barco, perro, dedal, bota), `DibujoDado`, `Iconos`.
 - Lato no trae cursiva: no usar `FontStyle.Italic` con `Tema.Texto`. Todo control dibujado usa `OptimizedDoubleBuffer` y `Dibujo.Calidad`.
+- **Escala fija en píxeles**: todas las ventanas usan `AutoScaleMode.None` y las fuentes del tema se crean en píxeles (`Tema.PixelesPorPunto` = 2: tamaño 10 → 20 px). Así texto y diseño mantienen la misma proporción con cualquier escala de Windows (la interfaz se diseñó y revisó a 150 %). No mezclar fuentes en puntos en controles nuevos.
+- Otros componentes: `BotonIcono` (engranaje, historial), `Lienzo` (panel con doble búfer), `IlustracionesTablero` (flecha de Salida, rejas, auto, silbato, tren, bombilla, gota, anillo, billete, ?, cofre), `IconoTransaccion`, íconos `Engranaje`, `Libro`, `Altavoz`.
 - **Ficha elegida**: `FormaFicha` (Modelo) + `ColorFicha` (6 colores). `CONECTAR|nombre|forma|color` (opcionales); `Juego.UnirJugador(nombre, forma?, color?)` rechaza forma o color repetidos y, si no se indican, asigna la primera libre (así lo hacen los argumentos de prueba `--crear/--unirse`). La forma viaja en `EstadoJugador.FormaFicha` y se dibuja en el tablero y en los paneles.
 - Ventana de inicio: fondo de tablero, logotipo y dados animados, tarjeta "Su jugador" (nombre + `SelectorFicha`), tarjetas "Crear partida" y "Unirse a partida" con validación visual; errores como notificaciones.
 - Sala de espera: `TarjetaJugadorSala` (ficha, color, insignias, estado RFID; aparece animada), dirección del banco con "Copiar", estado de la Pico W, vinculación de tarjetas (clic en el jugador) y "Iniciar partida" con la explicación de lo que falta.
-- Pendiente (pasos 2 y 3): ventana de juego, tablero, historial y fin con el nuevo estilo.
+- **Tablero** (`PanelTablero`): casillas con franja arriba, nombre (se achica si la palabra más larga no cabe) y precio abajo, giradas 0°/90°/180°/270° para leerse desde afuera; esquinas en diagonal con ilustración; ícono según `Casilla.Categoria` (dato polimórfico, no se chequea el tipo); centro con logotipo en diagonal, mazos apilados en sus espacios, dados que giran al llegar una tirada y el aviso del turno; fichas repartidas (1 a 4 por casilla) con sombra; banda del color del dueño en el borde exterior; tarjeta de título al pasar el mouse; se escala manteniendo el cuadrado.
+- **Rendimiento del tablero**: rectángulos de las 40 casillas precalculados al redimensionar; dos imágenes en caché (base: mesa, sombra, esquinas, logotipo y mazos, solo cambia con el tamaño; fondo: casillas con dueños, turno y aviso, se regenera con cada `ESTADO`); encima se dibujan dados, resaltado del cursor, fichas y la tarjeta. El mouse solo invalida al cambiar de casilla (casilla anterior, nueva y tarjeta); la tarjeta es una única `TarjetaCasilla` que se dibuja en su propia imagen y aparece tras 150 ms. Dados y fichas animadas invalidan solo su zona. `Dibujo.Sombra` recorta el interior de la forma (la sombra del tablero costaba ~770 ms).
+- **Ventana de juego**: tablero + columna derecha con "Historial" y engranaje, `PanelJugadores` (ficha, saldo grande, propiedades con sus colores, RFID, borde dorado e indicador para el turno, "En bancarrota" en gris; clic → `ListaPropiedadesJugador` desplegada, agrupada por color), tarjeta de situación (alto según el texto), solo los botones de la fase (Comprar, No comprar/Cancelar compra, Terminar turno; retirar desconectados para el organizador) y "Actividad reciente" plegable. Errores y avisos del cajero como notificaciones.
+- **Opciones** (`FormularioOpciones`): Pico W (solo organizador), Sonido (`Preferencias`: activado y volumen, guardados en `%LOCALAPPDATA%\MonopolyTEC\preferencias.txt`; se usarán en el paso 3) y Partida (servidor, usted, turno, salir con confirmación).
+- **Historial** (`FormularioHistorial` + `TablaTransacciones`): ventana aparte, filtros como botones (todas, más antiguas, más recientes, por jugador, por tipo) consultados con CONSULTAR_TRANSACCIONES, filas alternadas, ícono por tipo, monto verde (ingreso) o rojo (pago) desde el jugador de referencia, exportar TXT y actualización automática cuando cambia la cantidad de transacciones del ESTADO.
+- El monitor de la Pico muestra BOTON/RFID/errores reconstruidos de los eventos de `IDispositivoCajero`; **PONG no se muestra** porque la capa de hardware no lo expone (habría que agregar un evento en `CajeroPorLineas`).
+- Pendiente (paso 3): ventana de fin y sonidos.
 
 ## Resumen de requisitos del enunciado
 
@@ -190,12 +200,12 @@ Marcar con `[x]` al completar cada punto en su etapa.
 - [x] 11. Transacciones con todos los campos y los 7 tipos mínimos; banco como origen/destino
 - [x] 12. Historial: agregar, recorrer ambos sentidos, buscar por jugador y por tipo, imprimir todo
 - [x] 13. Exportación del historial a TXT con los campos mínimos
-- [ ] 14. Módulo electrónico (Raspberry Pi Pico W): RFID + botón + LED de pago — *firmware nuevo probado en la placa real (LISTO, PING/PONG, solo líneas del protocolo) y con el `CajeroPico` del juego; integración en C# (dados solo con el botón, compras y cobros solo con tarjeta, `PAGO_OK`/`PAGO_RECHAZADO`, pausa si se desconecta la Pico, modo sin hardware para pruebas) con pruebas. Falta una partida completa con tarjetas y botón físicos. El enunciado pide dado de 2 dígitos con displays: por decisión del grupo, por ahora no se incluyen*
+- [ ] 14. Módulo electrónico (Raspberry Pi Pico W): RFID + botón + LED de pago — *firmware nuevo probado en la placa real (LISTO, PING/PONG, solo líneas del protocolo) y con el `CajeroPico` del juego; integración en C# (dados solo con el botón, compras y cobros solo con tarjeta, `PAGO_OK`/`PAGO_RECHAZADO`, pausa si se desconecta la Pico, modo sin hardware para pruebas) con pruebas. Falta una partida completa con tarjetas y botón físicos. Los 2 displays de 7 segmentos (dado de 2 dígitos): pendiente de implementar.*
 - [x] 15. Todas las clases mínimas presentes; ninguna colección de .NET
 - [x] 16. Comunicación por sockets TCP con protocolo documentado (`docs/protocolo.md`) y difusión de estado
 - [x] 17. Todas las validaciones del servidor (en `Juego`; el cliente no puede modificar el modelo porque sus mutadores son `internal`)
 - [x] 18. Eliminación de jugadores y fin de partida (último activo o límite de turnos con patrimonio)
-- [ ] 19. Entregables: UML, doc. de estructuras, protocolo, archivo de transacciones, manual, hardware
+- [ ] 19. Entregables: UML (`docs/uml.md`), estructuras (`docs/estructuras.md`), protocolo TCP (`docs/protocolo.md`) y serie (`hardware/README.md`), manual (`README.md`) y hardware listos — *el archivo de transacciones (`docs/ejemplo-transacciones.txt`) es un respaldo de una partida simulada; falta reemplazarlo por el de una partida real con el cajero físico*
 - [ ] 20. Preparación de la defensa (guion de demostración cubriendo todos los puntos)
 
 ## Comandos
@@ -204,6 +214,7 @@ Marcar con `[x]` al completar cada punto en su etapa.
 dotnet build Monopoly.sln
 dotnet test Monopoly.sln
 dotnet run --project src/Monopoly.App
+# Varias ventanas de prueba (compilar antes): Monopoly.App.exe --crear Ana 5000 100 / --unirse Beto 127.0.0.1 5000
 # Depuración del protocolo (compilar antes; --no-build permite varias instancias a la vez):
 dotnet run --project src/Monopoly.ClienteConsola --no-build -- servidor 5000
 dotnet run --project src/Monopoly.ClienteConsola --no-build -- cliente 127.0.0.1 5000 Ana

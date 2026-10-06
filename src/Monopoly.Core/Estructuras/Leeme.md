@@ -6,5 +6,7 @@ Estructuras de datos lineales propias. Es el único lugar donde se definen colec
 | `ListaSimple<T>` | Nodos simples con cabeza y cola | Propiedades de cada jugador y colecciones internas |
 | `ListaDobleEnlazada<T>` | Nodos dobles con cabeza y cola | Historial de transacciones (recorrido en ambos sentidos) |
 | `ListaCircularDoble<T>` / `NodoCircularDoble<T>` | Nodos dobles circulares | Tablero (movimiento nodo a nodo) |
-| `ColaCircular<T>` | Arreglo con índices modulares | Turnos (rotar al siguiente jugador, eliminar jugadores) |
+| `ColaCircular<T>` | Arreglo con índices modulares | Turnos (rotar al siguiente jugador, eliminar jugadores); últimas líneas del monitor del cajero y del registro de actividad |
 | `Cola<T>` | Nodos simples FIFO | Mazos de cartas de evento (la carta usada vuelve al final) |
+
+Operaciones, complejidad y justificación de cada una: [`docs/estructuras.md`](../../../docs/estructuras.md).

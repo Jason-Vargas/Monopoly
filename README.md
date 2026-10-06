@@ -2,7 +2,7 @@
 
 Proyecto 1 del curso **Algoritmos y Estructuras de Datos 1** — Instituto Tecnológico de Costa Rica, II Semestre 2026.
 
-Versión simplificada de Monopoly Electrónico (tema clásico, edición Atlantic City en español) con arquitectura cliente-servidor sobre TCP, estructuras de datos lineales implementadas desde cero y un módulo electrónico (dado de 2 dígitos y lector RFID) basado en una Raspberry Pi Pico W con MicroPython, conectada por USB a la computadora del organizador (ver [`hardware/README.md`](hardware/README.md)).
+Versión simplificada de Monopoly Electrónico (tema clásico, edición Atlantic City en español) con arquitectura cliente-servidor sobre TCP, estructuras de datos lineales implementadas desde cero y un módulo electrónico (lector RFID, botón para los dados, LED de pago y, pendiente de implementar, 2 displays de 7 segmentos para el dado) basado en una Raspberry Pi Pico W con MicroPython, conectada por USB a la computadora del organizador (ver [`hardware/README.md`](hardware/README.md)).
 
 > Proyecto académico sin afiliación con Hasbro. No se usan el logotipo ni la mascota oficiales.
 
@@ -12,10 +12,53 @@ Versión simplificada de Monopoly Electrónico (tema clásico, edición Atlantic
 |---|---|---|
 | `src/Monopoly.Core` | Biblioteca de clases | Estructuras de datos, modelo, lógica del juego, red y hardware |
 | `src/Monopoly.App` | Windows Forms | Interfaz gráfica (servidor/organizador y clientes) |
-| `src/Monopoly.ClienteConsola` | Consola (temporal) | Servidor y cliente de consola para depurar el protocolo |
-| `tests/Monopoly.Tests` | xUnit | Pruebas unitarias y de integración (red) |
+| `tests/Monopoly.Tests` | xUnit | Pruebas unitarias y de integración (red y cajero) |
 
-El enunciado está en [`docs/enunciado.pdf`](docs/enunciado.pdf) y el protocolo cliente-servidor en [`docs/protocolo.md`](docs/protocolo.md).
+```
+Monopoly/
+├── Monopoly.sln
+├── Directory.Build.props        configuración común (nullable, sin usings implícitos, documentación XML)
+├── publicar.ps1                 genera el .exe autocontenido en publicar/win-x64/
+├── README.md                    este manual
+├── CLAUDE.md                    decisiones técnicas y checklist de requisitos
+├── docs/
+│   ├── enunciado.pdf            enunciado del proyecto
+│   ├── uml.md                   diagramas de clases (Mermaid)
+│   ├── estructuras.md           estructuras de datos: operaciones, complejidad y uso
+│   ├── protocolo.md             protocolo TCP cliente-servidor
+│   ├── prueba-en-red.md         firewall, IP y prueba con varias computadoras
+│   └── ejemplo-transacciones.txt  historial exportado de una partida (respaldo, ver abajo)
+├── hardware/
+│   ├── README.md                materiales, conexiones, instalación y pruebas de la Pico W
+│   └── pico/                    main.py (firmware), mfrc522.py (driver) y prueba_uid.py
+├── src/
+│   ├── Monopoly.Core/
+│   │   ├── Estructuras/         ListaSimple, ListaDobleEnlazada, ListaCircularDoble, ColaCircular, Cola
+│   │   ├── Modelo/              Jugador, Casilla y derivadas, cartas, Transaccion, Dado, Tablero
+│   │   ├── Logica/              Juego, Banco, estado del turno y exportación TXT
+│   │   ├── Red/                 Servidor, Cliente y protocolo
+│   │   └── Hardware/            cajero Pico W (serie) y cajero simulado
+│   └── Monopoly.App/
+│       ├── Estilo/              tema, fuentes, controles dibujados e ilustraciones
+│       └── *.cs                 ventanas, tablero y paneles
+└── tests/Monopoly.Tests/        Estructuras/, Modelo/, Logica/, Red/, Hardware/ y PruebasRestricciones
+```
+
+Cada carpeta de `src/Monopoly.Core` tiene un `Leeme.md` con lo que contiene (el de `Estructuras/` explica qué estructura se usa para qué). Las partidas exportadas se guardan en `partidas/` (no se sube a git).
+
+## Documentación
+
+| Entregable | Archivo |
+|---|---|
+| Enunciado | [`docs/enunciado.pdf`](docs/enunciado.pdf) |
+| Diagrama UML | [`docs/uml.md`](docs/uml.md) |
+| Estructuras de datos | [`docs/estructuras.md`](docs/estructuras.md) |
+| Protocolo cliente-servidor (TCP) | [`docs/protocolo.md`](docs/protocolo.md) |
+| Protocolo serie con la Pico W, conexiones y firmware | [`hardware/README.md`](hardware/README.md) y [`hardware/pico/`](hardware/pico/) |
+| Archivo de transacciones de una partida | [`docs/ejemplo-transacciones.txt`](docs/ejemplo-transacciones.txt) |
+| Manual de ejecución | este README |
+
+**Sobre `docs/ejemplo-transacciones.txt`:** es un **respaldo provisional** generado con una partida simulada de 4 jugadores (60 turnos, modo sin hardware, dados con semilla fija) usando la misma lógica del servidor; contiene los 7 tipos de transacción. Se reemplazará por el TXT de una partida real con el cajero físico (tarjetas RFID y botón).
 
 ## Requisitos
 
@@ -59,18 +102,15 @@ Con estos argumentos de prueba el servidor asigna a cada ventana la primera fich
 
 Tipografías: [Abril Fatface](https://fonts.google.com/specimen/Abril+Fatface) y [Lato](https://fonts.google.com/specimen/Lato), con licencia SIL Open Font License 1.1 (ver `src/Monopoly.App/Estilo/Fuentes/OFL-*.txt`). El logotipo "MONOPOLY TEC" y las fichas son diseño propio.
 
-## Probar una partida por consola
+## Probar sin el cajero físico
 
-Compile una vez y abra una terminal para el servidor y una por jugador (desde la raíz del repositorio):
-
-```bash
-dotnet build Monopoly.sln
-dotnet run --project src/Monopoly.ClienteConsola --no-build -- servidor 5000
-dotnet run --project src/Monopoly.ClienteConsola --no-build -- cliente 127.0.0.1 5000 Ana
-```
-
-El servidor muestra las IPv4 de la computadora para que otros equipos de la red se conecten. En el cliente, `?` muestra los comandos.
+En **Opciones** (engranaje), el organizador puede marcar **Modo sin hardware (pruebas)**: los dados y los pagos se simulan con "Simular botón" y "Simular tarjeta del jugador en turno", sin la Pico W.
 
 ## Estado
 
-En desarrollo: estructuras de datos, modelo, lógica del juego, comunicación TCP e interfaz gráfica listas; el firmware del módulo electrónico (Pico W) está en `hardware/`; falta probarlo con la placa e integrarlo por USB serial.
+En desarrollo: estructuras de datos, modelo, lógica del juego, comunicación TCP, interfaz gráfica y cajero Pico W (botón, RFID y LED de pago por USB serial) integrados y con pruebas; documentación (UML, estructuras, protocolos) al día.
+
+Pendiente:
+- **2 displays de 7 segmentos para el dado electrónico (2 dígitos): pendiente de implementar.**
+- Partida completa con el cajero físico y en 2 computadoras, y su archivo de transacciones (reemplaza al respaldo).
+- Ventana de fin y sonidos.
